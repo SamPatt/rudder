@@ -111,4 +111,25 @@ input::placeholder {
   button {
     background-color: #f9f9f9;
   }
+}
+
+@keyframes gradient-slow {
+  0% {
+    background: linear-gradient(90deg, rgb(154 52 18) 0%, rgb(194 65 12) 50%, rgb(154 52 18) 100%);
+    background-size: 200% 100%;
+    background-position: 0% 50%;
+  }
+  50% {
+    background: linear-gradient(90deg, rgb(154 52 18) 0%, rgb(194 65 12) 50%, rgb(154 52 18) 100%);
+    background-size: 200% 100%;
+    background-position: 100% 50%;
+  }
+  100% {
+    background: linear-gradient(90deg, rgb(154 52 18) 0%, rgb(194 65 12) 50%, rgb(154 52 18) 100%);
+    background-size: 200% 100%;
+    background-position: 0% 50%;
+  }
+}
+.animate-gradient-slow {
+  animation: gradient-slow 4s ease-in-out infinite;
 } 

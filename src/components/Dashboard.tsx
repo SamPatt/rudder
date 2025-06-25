@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Task, Goal, TimeBlock, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
 import GoalSelector from './GoalSelector';
+import { getValueIcon } from '../lib/valueIcons';
 
 interface DashboardProps {
   tasks: Task[];
@@ -342,12 +343,23 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
   const getSelectedGoalNames = () => {
     if (!selectedGoalId) return '';
     const goal = goals.find(g => g.id === selectedGoalId);
-    return goal ? goal.name : '';
+    if (!goal) return '';
+    
+    // Find the value for this goal
+    const value = values.find(v => v.id === goal.value_id);
+    const valueIcon = value ? getValueIcon(value.name) : '🎯';
+    return `${valueIcon} ${goal.name}`;
   };
 
   const getTaskGoalNames = (task: Task) => {
     if (!task.task_goals || task.task_goals.length === 0) return null;
-    return task.task_goals.map(tg => tg.goal?.name).filter(Boolean).join(', ');
+    return task.task_goals.map(tg => {
+      const goal = tg.goal;
+      if (!goal) return null;
+      const value = goal.value;
+      const valueIcon = value ? getValueIcon(value.name) : '🎯';
+      return `${valueIcon} ${goal.name}`;
+    }).filter(Boolean).join(', ');
   };
 
   // Helper functions to organize tasks
@@ -619,36 +631,41 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
             </h3>
             <div className="space-y-2">
               {getDailyTasks().map(task => (
-                <div key={task.id} className={`flex items-center space-x-3 p-3 border rounded-lg transition-colors ${
+                <div key={task.id} className={`p-3 border rounded-lg transition-colors flex flex-col ${
                   task.is_done 
                     ? 'border-green-600 bg-green-900/20' 
                     : 'border-slate-600 bg-slate-700'
                 }`}>
-                  <input
-                    type="checkbox"
-                    checked={task.is_done}
-                    onChange={() => toggleTask(task.id, task.is_done)}
-                    className={`h-4 w-4 focus:ring-forest-500 border-slate-500 rounded flex-shrink-0 ${
+                  <div className="flex items-center gap-3 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={task.is_done}
+                      onChange={() => toggleTask(task.id, task.is_done)}
+                      className={`h-4 w-4 focus:ring-forest-500 border-slate-500 rounded flex-shrink-0 ${
+                        task.is_done 
+                          ? 'text-green-600 bg-green-600' 
+                          : 'text-forest-600 bg-slate-600'
+                      }`}
+                    />
+                    <span className={`flex-1 min-w-0 break-words ${
                       task.is_done 
-                        ? 'text-green-600 bg-green-600' 
-                        : 'text-forest-600 bg-slate-600'
-                    }`}
-                  />
-                  <span className={`flex-1 min-w-0 ${
-                    task.is_done 
-                      ? 'line-through text-slate-400' 
-                      : 'text-slate-200'
-                  }`}>
-                    {task.title}
-                  </span>
-                  {getTaskGoalNames(task) && (
-                    <span className={`text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 ${
-                      task.is_done 
-                        ? 'text-slate-400 bg-slate-600' 
-                        : 'text-slate-300 bg-slate-600'
+                        ? 'line-through text-slate-400' 
+                        : 'text-slate-200'
                     }`}>
-                      {getTaskGoalNames(task)}
+                      {task.title}
                     </span>
+                  </div>
+                  {getTaskGoalNames(task) && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
+                        <span
+                          key={idx}
+                          className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
+                        >
+                          {goalTag}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               ))}
@@ -665,36 +682,41 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
             </h3>
             <div className="space-y-2">
               {getTodaysTasks().map(task => (
-                <div key={task.id} className={`flex items-center space-x-3 p-3 border rounded-lg transition-colors ${
+                <div key={task.id} className={`p-3 border rounded-lg transition-colors flex flex-col ${
                   task.is_done 
                     ? 'border-green-600 bg-green-900/20' 
                     : 'border-slate-600 bg-slate-700'
                 }`}>
-                  <input
-                    type="checkbox"
-                    checked={task.is_done}
-                    onChange={() => toggleTask(task.id, task.is_done)}
-                    className={`h-4 w-4 focus:ring-forest-500 border-slate-500 rounded flex-shrink-0 ${
+                  <div className="flex items-center gap-3 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={task.is_done}
+                      onChange={() => toggleTask(task.id, task.is_done)}
+                      className={`h-4 w-4 focus:ring-forest-500 border-slate-500 rounded flex-shrink-0 ${
+                        task.is_done 
+                          ? 'text-green-600 bg-green-600' 
+                          : 'text-forest-600 bg-slate-600'
+                      }`}
+                    />
+                    <span className={`flex-1 min-w-0 break-words ${
                       task.is_done 
-                        ? 'text-green-600 bg-green-600' 
-                        : 'text-forest-600 bg-slate-600'
-                    }`}
-                  />
-                  <span className={`flex-1 min-w-0 ${
-                    task.is_done 
-                      ? 'line-through text-slate-400' 
-                      : 'text-slate-200'
-                  }`}>
-                    {task.title}
-                  </span>
-                  {getTaskGoalNames(task) && (
-                    <span className={`text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 ${
-                      task.is_done 
-                        ? 'text-slate-400 bg-slate-600' 
-                        : 'text-slate-300 bg-slate-600'
+                        ? 'line-through text-slate-400' 
+                        : 'text-slate-200'
                     }`}>
-                      {getTaskGoalNames(task)}
+                      {task.title}
                     </span>
+                  </div>
+                  {getTaskGoalNames(task) && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
+                        <span
+                          key={idx}
+                          className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
+                        >
+                          {goalTag}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               ))}

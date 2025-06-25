@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Database } from '../types/database';
 import GoalSelector from './GoalSelector';
+import TimeDropdown from './TimeDropdown';
 
 type TimeBlock = Database['public']['Tables']['time_blocks']['Row'];
 type ScheduleCompletion = Database['public']['Tables']['schedule_completions']['Row'];
@@ -45,6 +46,8 @@ export default function Schedule() {
   const [values, setValues] = useState<Database['public']['Tables']['values']['Row'][]>([]);
   const [showGoalSelector, setShowGoalSelector] = useState(false);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const lastStartTimeRef = useRef(formData.start_time);
+  const [endTimeManuallyChanged, setEndTimeManuallyChanged] = useState(false);
 
   useEffect(() => {
     fetchTimeBlocks();
@@ -315,10 +318,11 @@ export default function Schedule() {
   const isTimeBlockScheduledForDate = (timeBlock: TimeBlock, date: Date): boolean => {
     // Handle one-time events
     if (timeBlock.recur === 'once' && timeBlock.event_date) {
-      const eventDate = new Date(timeBlock.event_date);
-      return date.toDateString() === eventDate.toDateString();
+      // Compare only the date part (YYYY-MM-DD) for both
+      const eventDateStr = new Date(timeBlock.event_date).toISOString().split('T')[0];
+      const currentDateStr = date.toISOString().split('T')[0];
+      return eventDateStr === currentDateStr;
     }
-    
     const dayOfWeek = date.getDay();
     const days = getDaysForTimeBlock(timeBlock);
     return days.includes(dayOfWeek);
@@ -429,6 +433,9 @@ export default function Schedule() {
     return goal ? goal.name : '';
   };
 
+  // Format time as HH:mm
+  const formatTime = (t: string) => t.slice(0, 5);
+
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 sm:mb-6 space-y-3 sm:space-y-0">
@@ -494,27 +501,34 @@ export default function Schedule() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Start Time
-                  </label>
-                  <input
-                    type="time"
+                  <TimeDropdown
                     value={formData.start_time}
-                    onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                    required
+                    onChange={val => {
+                      setFormData(prev => {
+                        // If end time hasn't been manually changed since last start time change, auto-advance end time
+                        let newEnd = prev.end_time;
+                        if (!endTimeManuallyChanged) {
+                          // Add one hour to start time
+                          const [h, m] = val.split(':').map(Number);
+                          const endH = (h + 1) % 24;
+                          newEnd = `${endH.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                        }
+                        lastStartTimeRef.current = val;
+                        setEndTimeManuallyChanged(false);
+                        return { ...prev, start_time: val, end_time: newEnd };
+                      });
+                    }}
+                    label="Start Time"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    End Time
-                  </label>
-                  <input
-                    type="time"
+                  <TimeDropdown
                     value={formData.end_time}
-                    onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                    required
+                    onChange={val => {
+                      setFormData(prev => ({ ...prev, end_time: val }));
+                      setEndTimeManuallyChanged(true);
+                    }}
+                    label="End Time"
                   />
                 </div>
               </div>
@@ -655,83 +669,78 @@ export default function Schedule() {
               return (
                 <div 
                   key={timeBlock.id}
-                  className={`absolute left-12 sm:left-16 right-2 sm:right-4 p-2 sm:p-3 rounded border transition-colors ${
-                    isCurrentTime 
-                      ? 'bg-green-900 border-green-600' 
-                      : completion?.status === 'completed'
-                      ? 'bg-green-900 border-green-600'
-                      : completion?.status === 'failed'
-                      ? 'bg-red-900 border-red-600'
-                      : completion?.status === 'skipped'
-                      ? 'bg-red-900 border-red-600'
-                      : 'bg-slate-700 border-slate-600'
-                  }`}
+                  className={`absolute left-12 sm:left-16 right-2 sm:right-4 p-2 sm:p-3 rounded border transition-colors flex flex-col h-full justify-between overflow-visible
+                    ${isCurrentTime ? 'border-orange-400 animate-gradient-slow' :
+                      completion?.status === 'completed' ? 'bg-green-900 border-green-600' :
+                      completion?.status === 'failed' ? 'bg-red-900 border-red-600' :
+                      completion?.status === 'skipped' ? 'bg-red-900 border-red-600' :
+                      'bg-slate-700 border-slate-600'}
+                  `}
                   style={{
                     top: `${top}px`,
                     height: `${height}px`,
                     zIndex: isCurrentTime ? 10 : 5
                   }}
                 >
-                  <div className="flex justify-between items-start h-full">
-                    <div className="flex-1 min-w-0">
-                      <h4 className={`text-xs sm:text-sm font-medium truncate ${
-                        isCurrentTime ? 'text-green-200' : 'text-gray-300'
+                  {/* Action buttons row */}
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    <button
+                      onClick={() => handleCompletion(timeBlock.id, currentDate, 'completed')}
+                      className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                        completion?.status === 'completed'
+                          ? 'bg-green-600 border-green-600 text-white'
+                          : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
+                      }`}
+                      title="Mark as completed"
+                    >
+                      ✓
+                    </button>
+                    <button
+                      onClick={() => handleCompletion(timeBlock.id, currentDate, 'failed')}
+                      className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                        completion?.status === 'failed'
+                          ? 'bg-red-600 border-red-600 text-white'
+                          : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
+                      }`}
+                      title="Mark as failed"
+                    >
+                      ✕
+                    </button>
+                    <button
+                      onClick={() => handleEdit(timeBlock)}
+                      className="w-5 h-5 rounded-full border border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white flex items-center justify-center transition-colors"
+                      title="Edit time block"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      onClick={() => handleDelete(timeBlock.id)}
+                      className="w-5 h-5 rounded-full border border-red-500 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors"
+                      title="Delete time block"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                  {/* Time block details */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center">
+                    <h4 className={`text-xs sm:text-sm font-medium truncate ${
+                      isCurrentTime ? 'text-orange-100' :
+                      completion?.status === 'completed' ? 'text-green-200' :
+                      'text-gray-300'
+                    }`}>
+                      {timeBlock.title} <span className="text-xs text-gray-400">({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
+                    </h4>
+                    {completion && (
+                      <p className={`text-xs mt-1 ${
+                        completion.status === 'completed' ? 'text-green-400' :
+                        completion.status === 'failed' ? 'text-red-400' :
+                        'text-yellow-400'
                       }`}>
-                        {timeBlock.title}
-                      </h4>
-                      <p className="text-xs text-gray-500">
-                        {timeBlock.start_time} - {timeBlock.end_time}
+                        {completion.status === 'completed' ? '✓ Completed' :
+                         completion.status === 'failed' ? '✕ Failed' :
+                         '⚠ Skipped'}
                       </p>
-                      {completion && (
-                        <p className={`text-xs mt-1 ${
-                          completion.status === 'completed' ? 'text-green-400' :
-                          completion.status === 'failed' ? 'text-red-400' :
-                          'text-yellow-400'
-                        }`}>
-                          {completion.status === 'completed' ? '✓ Completed' :
-                           completion.status === 'failed' ? '✕ Failed' :
-                           '⚠ Skipped'}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex gap-1 ml-2 flex-shrink-0">
-                      <button
-                        onClick={() => handleCompletion(timeBlock.id, currentDate, 'completed')}
-                        className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border flex items-center justify-center transition-colors ${
-                          completion?.status === 'completed'
-                            ? 'bg-green-600 border-green-600 text-white'
-                            : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
-                        }`}
-                        title="Mark as completed"
-                      >
-                        {completion?.status === 'completed' && '✓'}
-                      </button>
-                      <button
-                        onClick={() => handleCompletion(timeBlock.id, currentDate, 'failed')}
-                        className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border flex items-center justify-center transition-colors ${
-                          completion?.status === 'failed'
-                            ? 'bg-red-600 border-red-600 text-white'
-                            : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
-                        }`}
-                        title="Mark as failed"
-                      >
-                        {completion?.status === 'failed' && '✕'}
-                      </button>
-                      <button
-                        onClick={() => handleEdit(timeBlock)}
-                        className="w-4 h-4 sm:w-5 sm:h-5 rounded-full border border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white flex items-center justify-center transition-colors"
-                        title="Edit time block"
-                      >
-                        ✎
-                      </button>
-                      <button
-                        onClick={() => handleDelete(timeBlock.id)}
-                        className="w-4 h-4 sm:w-5 sm:h-5 rounded-full border border-red-500 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors"
-                        title="Delete time block"
-                      >
-                        ×
-                      </button>
-                    </div>
+                    )}
                   </div>
                 </div>
               );
@@ -750,7 +759,16 @@ export default function Schedule() {
                   className={`flex items-center border-b border-slate-700 py-2 ${
                     isCurrentHour ? 'bg-green-900/20' : ''
                   }`}
-                  style={{ height: '60px' }}
+                  style={{ height: '60px', cursor: 'pointer' }}
+                  onClick={() => {
+                    setFormData(prev => ({
+                      ...prev,
+                      start_time: `${hour.toString().padStart(2, '0')}:00`,
+                      end_time: `${((hour + 1) % 24).toString().padStart(2, '0')}:00`,
+                    }));
+                    setEditingBlock(null);
+                    setShowForm(true);
+                  }}
                 >
                   {/* Time label */}
                   <div className="w-12 sm:w-16 text-xs sm:text-sm text-gray-400 font-mono flex-shrink-0">

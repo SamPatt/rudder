@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Task, Goal, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
 import GoalSelector from './GoalSelector';
+import { getValueIcon } from '../lib/valueIcons';
 
 interface TaskListProps {
   tasks: Task[];
@@ -18,6 +19,7 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurType, setRecurType] = useState<'daily' | 'weekdays' | 'weekly' | 'custom'>('daily');
   const [customDays, setCustomDays] = useState<number[]>([]);
+  const [editMode, setEditMode] = useState<{ [taskId: string]: boolean }>({});
 
   const handleAddTask = () => {
     if (!newTaskTitle.trim()) return;
@@ -183,7 +185,13 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
 
   const getTaskGoalNames = (task: Task) => {
     if (!task.task_goals || task.task_goals.length === 0) return null;
-    return task.task_goals.map(tg => tg.goal?.name).filter(Boolean).join(', ');
+    return task.task_goals.map(tg => {
+      const goal = tg.goal;
+      if (!goal) return null;
+      const value = goal.value;
+      const valueIcon = value ? getValueIcon(value.name) : '🎯';
+      return `${valueIcon} ${goal.name}`;
+    }).filter(Boolean).join(', ');
   };
 
   const getCurrentTaskGoalIds = () => {
@@ -354,37 +362,62 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                 </h3>
                 <div className="space-y-2">
                   {getDailyTasks().map(task => (
-                    <div key={task.id} className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-3 p-3 sm:p-4 border border-slate-600 rounded-lg bg-slate-700">
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
+                    <div key={task.id} className="relative p-3 sm:p-4 border border-slate-600 rounded-lg bg-slate-700 flex flex-col">
+                      {/* Edit icon at top right */}
+                      {!editMode[task.id] && (
+                        <button
+                          onClick={() => setEditMode((prev) => ({ ...prev, [task.id]: true }))}
+                          className="absolute top-2 right-2 text-slate-400 hover:text-forest-400 p-1 rounded focus:outline-none focus:ring-2 focus:ring-forest-500"
+                          title="Edit task"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 3.487a2.25 2.25 0 1 1 3.182 3.182L7.5 19.213l-4.182.465a.75.75 0 0 1-.82-.82l.465-4.182L16.862 3.487z" />
+                          </svg>
+                        </button>
+                      )}
+                      <div className="flex items-center gap-3 min-w-0">
                         <input
                           type="checkbox"
                           checked={task.is_done}
                           onChange={() => toggleTask(task.id, task.is_done)}
                           className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600 flex-shrink-0"
                         />
-                        <span className={`flex-1 min-w-0 ${task.is_done ? 'line-through text-slate-500' : 'text-slate-200'}`}>
-                          {task.title}
-                        </span>
+                        <span className={`flex-1 min-w-0 break-words ${task.is_done ? 'line-through text-slate-500' : 'text-slate-200'}`}>{task.title}</span>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          onClick={() => handleEditGoal(task.id)}
-                          className="text-forest-400 hover:text-forest-300 text-xs sm:text-sm px-2 py-1 border border-forest-600 rounded hover:bg-forest-900 transition-colors"
-                        >
-                          {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
-                        </button>
-                        {getTaskGoalNames(task) && (
-                          <span className="text-xs sm:text-sm text-slate-300 bg-slate-600 px-2 py-1 rounded">
-                            {getTaskGoalNames(task)}
-                          </span>
-                        )}
-                        <button
-                          onClick={() => deleteTask(task.id)}
-                          className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </div>
+                      {getTaskGoalNames(task) && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
+                            <span
+                              key={idx}
+                              className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
+                            >
+                              {goalTag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {editMode[task.id] && (
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <button
+                            onClick={() => handleEditGoal(task.id)}
+                            className="text-forest-400 hover:text-forest-300 text-xs sm:text-sm px-2 py-1 border border-forest-600 rounded hover:bg-forest-900 transition-colors"
+                          >
+                            {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
+                          </button>
+                          <button
+                            onClick={() => deleteTask(task.id)}
+                            className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition-colors"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            onClick={() => setEditMode((prev) => ({ ...prev, [task.id]: false }))}
+                            className="text-slate-400 hover:text-slate-200 text-xs sm:text-sm transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -400,37 +433,62 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                 </h3>
                 <div className="space-y-2">
                   {getRegularTasks().map(task => (
-                    <div key={task.id} className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-3 p-3 sm:p-4 border border-slate-600 rounded-lg bg-slate-700">
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
+                    <div key={task.id} className="relative p-3 sm:p-4 border border-slate-600 rounded-lg bg-slate-700 flex flex-col">
+                      {/* Edit icon at top right */}
+                      {!editMode[task.id] && (
+                        <button
+                          onClick={() => setEditMode((prev) => ({ ...prev, [task.id]: true }))}
+                          className="absolute top-2 right-2 text-slate-400 hover:text-forest-400 p-1 rounded focus:outline-none focus:ring-2 focus:ring-forest-500"
+                          title="Edit task"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 3.487a2.25 2.25 0 1 1 3.182 3.182L7.5 19.213l-4.182.465a.75.75 0 0 1-.82-.82l.465-4.182L16.862 3.487z" />
+                          </svg>
+                        </button>
+                      )}
+                      <div className="flex items-center gap-3 min-w-0">
                         <input
                           type="checkbox"
                           checked={task.is_done}
                           onChange={() => toggleTask(task.id, task.is_done)}
                           className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600 flex-shrink-0"
                         />
-                        <span className={`flex-1 min-w-0 ${task.is_done ? 'line-through text-slate-500' : 'text-slate-200'}`}>
-                          {task.title}
-                        </span>
+                        <span className={`flex-1 min-w-0 break-words ${task.is_done ? 'line-through text-slate-500' : 'text-slate-200'}`}>{task.title}</span>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          onClick={() => handleEditGoal(task.id)}
-                          className="text-forest-400 hover:text-forest-300 text-xs sm:text-sm px-2 py-1 border border-forest-600 rounded hover:bg-forest-900 transition-colors"
-                        >
-                          {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
-                        </button>
-                        {getTaskGoalNames(task) && (
-                          <span className="text-xs sm:text-sm text-slate-300 bg-slate-600 px-2 py-1 rounded">
-                            {getTaskGoalNames(task)}
-                          </span>
-                        )}
-                        <button
-                          onClick={() => deleteTask(task.id)}
-                          className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </div>
+                      {getTaskGoalNames(task) && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
+                            <span
+                              key={idx}
+                              className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
+                            >
+                              {goalTag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {editMode[task.id] && (
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <button
+                            onClick={() => handleEditGoal(task.id)}
+                            className="text-forest-400 hover:text-forest-300 text-xs sm:text-sm px-2 py-1 border border-forest-600 rounded hover:bg-forest-900 transition-colors"
+                          >
+                            {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
+                          </button>
+                          <button
+                            onClick={() => deleteTask(task.id)}
+                            className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition-colors"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            onClick={() => setEditMode((prev) => ({ ...prev, [task.id]: false }))}
+                            className="text-slate-400 hover:text-slate-200 text-xs sm:text-sm transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

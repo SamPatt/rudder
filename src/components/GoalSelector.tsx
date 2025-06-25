@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Goal, Value } from '../types/database';
+import { getValueIcon } from '../lib/valueIcons';
 
 interface GoalSelectorProps {
   goals: Goal[];
@@ -10,20 +11,6 @@ interface GoalSelectorProps {
   selectedGoalIds?: string[];
   multiple?: boolean;
 }
-
-// Icon mapping for different values
-const getValueIcon = (valueName: string) => {
-  const iconMap: { [key: string]: string } = {
-    'Survival': '🛡️',
-    'Independence': '🦅',
-    'Directed love': '❤️',
-    'Being grounded in reality': '🏠',
-    'Do no harm': '🕊️',
-    'Curiosity': '🔍',
-    'Improvement (self + world)': '🚀'
-  };
-  return iconMap[valueName] || '🎯';
-};
 
 export default function GoalSelector({ 
   goals, 
