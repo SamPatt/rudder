@@ -9,6 +9,13 @@ type ScheduleCompletion = Database['public']['Tables']['schedule_completions']['
 type Goal = Database['public']['Tables']['goals']['Row'];
 type Value = Database['public']['Tables']['values']['Row'];
 
+// Update the type for TimeBlock to allow optional legacy fields
+type TimeBlockWithLegacy = TimeBlock & {
+  start_hour?: number;
+  duration_m?: number;
+  goal_id?: string | null;
+};
+
 const DAYS_OF_WEEK = [
   { value: 0, label: 'Sunday', short: 'Sun' },
   { value: 1, label: 'Monday', short: 'Mon' },
@@ -28,16 +35,16 @@ const RECURRENCE_OPTIONS = [
 ];
 
 export default function Schedule() {
-  const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
+  const [timeBlocks, setTimeBlocks] = useState<TimeBlockWithLegacy[]>([]);
   const [completions, setCompletions] = useState<ScheduleCompletion[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [editingBlock, setEditingBlock] = useState<TimeBlock | null>(null);
+  const [editingBlock, setEditingBlock] = useState<TimeBlockWithLegacy | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     start_time: '09:00',
     end_time: '10:00',
     recur: 'daily',
-    custom_days: [],
+    custom_days: [] as number[],
     event_date: new Date().toISOString().split('T')[0],
     goal_id: null as string | null,
   });
@@ -49,6 +56,7 @@ export default function Schedule() {
   const lastStartTimeRef = useRef(formData.start_time);
   const [endTimeManuallyChanged, setEndTimeManuallyChanged] = useState(false);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+  const [showDevModal, setShowDevModal] = useState(false);
 
   useEffect(() => {
     fetchTimeBlocks();
@@ -231,7 +239,7 @@ export default function Schedule() {
     }
   };
 
-  const handleEdit = (timeBlock: TimeBlock) => {
+  const handleEdit = (timeBlock: TimeBlockWithLegacy) => {
     console.log('Edit clicked for time block:', timeBlock);
     console.log('Current showForm state:', showForm);
     console.log('Current editingBlock state:', editingBlock);
@@ -301,13 +309,13 @@ export default function Schedule() {
   const handleDayToggle = (dayValue: number) => {
     setFormData(prev => ({
       ...prev,
-      custom_days: prev.custom_days.includes(dayValue)
-        ? prev.custom_days.filter(d => d !== dayValue)
-        : [...prev.custom_days, dayValue].sort()
+      custom_days: (prev.custom_days as number[]).includes(dayValue)
+        ? (prev.custom_days as number[]).filter(d => d !== dayValue)
+        : [...(prev.custom_days as number[]), dayValue].sort()
     }));
   };
 
-  const getDaysForTimeBlock = (timeBlock: TimeBlock): number[] => {
+  const getDaysForTimeBlock = (timeBlock: TimeBlockWithLegacy): number[] => {
     if (timeBlock.custom_days) {
       return timeBlock.custom_days;
     }
@@ -328,7 +336,7 @@ export default function Schedule() {
     return days.map(day => DAYS_OF_WEEK.find(d => d.value === day)?.short).join(', ');
   };
 
-  const isTimeBlockScheduledForDate = (timeBlock: TimeBlock, date: Date): boolean => {
+  const isTimeBlockScheduledForDate = (timeBlock: TimeBlockWithLegacy, date: Date): boolean => {
     // Handle one-time events
     if (timeBlock.recur === 'once' && timeBlock.event_date) {
       // Compare only the date part (YYYY-MM-DD) for both
@@ -341,7 +349,7 @@ export default function Schedule() {
     return days.includes(dayOfWeek);
   };
 
-  const isTimeBlockCurrent = (timeBlock: TimeBlock, date: Date): boolean => {
+  const isTimeBlockCurrent = (timeBlock: TimeBlockWithLegacy, date: Date): boolean => {
     const now = new Date();
     const today = new Date();
     
@@ -445,7 +453,14 @@ export default function Schedule() {
   };
 
   // Format time as HH:mm
-  const formatTime = (t: string) => t.slice(0, 5);
+  const formatTime = (t: string) => {
+    if (!t) return '';
+    let [hour, minute] = t.split(':').map(Number);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12;
+    if (hour === 0) hour = 12;
+    return `${hour}:${minute.toString().padStart(2, '0')} ${ampm}`;
+  };
 
   // Helper to group overlapping events and assign columns
   function groupAndAssignColumns(blocks) {
@@ -498,7 +513,7 @@ export default function Schedule() {
   }
 
   // Determine which hours to display
-  const earlyEventExists = timeBlocks.some(tb => {
+  const earlyEventBlocks = timeBlocks.filter(tb => {
     const [startHour] = tb.start_time.split(':').map(Number);
     const [endHour] = tb.end_time.split(':').map(Number);
     return (
@@ -506,6 +521,16 @@ export default function Schedule() {
       (endHour > 0 && endHour <= 6 && isTimeBlockScheduledForDate(tb, currentDate))
     );
   });
+  if (earlyEventBlocks.length > 0) {
+    console.log('Early event blocks for', currentDate.toISOString().split('T')[0], earlyEventBlocks.map(tb => ({
+      id: tb.id,
+      title: tb.title,
+      start_time: tb.start_time,
+      end_time: tb.end_time,
+      scheduledToday: isTimeBlockScheduledForDate(tb, currentDate)
+    })));
+  }
+  const earlyEventExists = earlyEventBlocks.length > 0;
   const currentHour = new Date().getHours();
   const showEarly = earlyEventExists || currentHour < 6;
   const hourRange = showEarly ? Array.from({ length: 24 }, (_, h) => h) : Array.from({ length: 18 }, (_, h) => h + 6);
@@ -518,6 +543,12 @@ export default function Schedule() {
           className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-none sm:rounded-lg transition-colors w-full sm:w-auto"
         >
           {showForm ? 'Cancel' : 'Add Time Block'}
+        </button>
+        <button
+          onClick={() => setShowDevModal(true)}
+          className="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-none sm:rounded-lg transition-colors w-full sm:w-auto mt-2 sm:mt-0"
+        >
+          Dev Tools: Manage All Time Blocks
         </button>
       </div>
 
@@ -784,7 +815,17 @@ export default function Schedule() {
                         ? 'bg-red-900 border-red-600'
                         : completion?.status === 'skipped'
                         ? 'bg-red-900 border-red-600'
-                        : 'bg-slate-700 border-slate-600'
+                        : (() => {
+                            // Past-due, untouched
+                            const now = new Date();
+                            const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
+                            const endTime = new Date();
+                            endTime.setHours(endHour, endMinute, 0, 0);
+                            if (now > endTime) {
+                              return 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-yellow-900';
+                            }
+                            return 'bg-slate-700 border-slate-600';
+                          })()
                     }
                   `}
                   style={{
@@ -801,10 +842,21 @@ export default function Schedule() {
                 >
                   {/* Show details/buttons only if active or on desktop */}
                   <div className="flex-1 min-w-0 flex flex-col justify-center">
-                    <h4 className={`text-xs sm:text-sm font-medium truncate ${
-                      isCurrentTime ? 'text-orange-100' :
-                      completion?.status === 'completed' || timeBlock.task?.is_done ? 'text-green-200' :
-                      'text-gray-300'
+                    <h4 className={`text-xs sm:text-sm font-medium truncate
+                      ${isCurrentTime ? 'text-orange-100' :
+                        (completion?.status === 'completed' || timeBlock.task?.is_done) ? 'text-green-200' :
+                        (() => {
+                          // Past-due, untouched
+                          const now = new Date();
+                          const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
+                          const endTime = new Date();
+                          endTime.setHours(endHour, endMinute, 0, 0);
+                          if (!completion && now > endTime) {
+                            return 'text-black';
+                          }
+                          return 'text-gray-300';
+                        })()
+                      }
                     }`}>
                       {timeBlock.task?.title || timeBlock.title} <span className="text-xs text-gray-400">({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
                     </h4>
@@ -887,6 +939,51 @@ export default function Schedule() {
         selectedGoalIds={selectedGoalId ? [selectedGoalId] : []}
         multiple={false}
       />
+
+      {showDevModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50" onClick={() => setShowDevModal(false)}>
+          <div className="bg-slate-900 p-6 rounded-lg w-full max-w-2xl mx-2 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-white">All Time Blocks (Dev Tools)</h3>
+              <button onClick={() => setShowDevModal(false)} className="text-gray-400 hover:text-white text-2xl font-bold">×</button>
+            </div>
+            <table className="w-full text-sm text-left text-gray-300">
+              <thead>
+                <tr>
+                  <th className="py-2 px-2">Title</th>
+                  <th className="py-2 px-2">Start</th>
+                  <th className="py-2 px-2">End</th>
+                  <th className="py-2 px-2">Recurrence</th>
+                  <th className="py-2 px-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {timeBlocks.map(tb => (
+                  <tr key={tb.id} className="border-b border-slate-700">
+                    <td className="py-2 px-2">{tb.title}</td>
+                    <td className="py-2 px-2">{tb.start_time}</td>
+                    <td className="py-2 px-2">{tb.end_time}</td>
+                    <td className="py-2 px-2">{tb.recur}</td>
+                    <td className="py-2 px-2">
+                      <button
+                        onClick={async () => {
+                          if (window.confirm('Delete this time block?')) {
+                            const { error } = await supabase.from('time_blocks').delete().eq('id', tb.id);
+                            if (!error) fetchTimeBlocks();
+                          }
+                        }}
+                        className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

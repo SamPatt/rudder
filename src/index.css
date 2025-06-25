@@ -139,4 +139,26 @@ input::placeholder {
 }
 .animate-gradient-slow {
   animation: gradient-slow 4s ease-in-out infinite;
+}
+
+@keyframes yellow-gradient-slow {
+  0% {
+    background: linear-gradient(90deg, #fde68a 0%, #fbbf24 50%, #fde68a 100%);
+    background-size: 200% 100%;
+    background-position: 0% 50%;
+  }
+  50% {
+    background: linear-gradient(90deg, #fde68a 0%, #fbbf24 50%, #fde68a 100%);
+    background-size: 200% 100%;
+    background-position: 100% 50%;
+  }
+  100% {
+    background: linear-gradient(90deg, #fde68a 0%, #fbbf24 50%, #fde68a 100%);
+    background-size: 200% 100%;
+    background-position: 0% 50%;
+  }
+}
+.animate-yellow-gradient {
+  animation: yellow-gradient-slow 4s ease-in-out infinite;
+  color: #3a2c00 !important;
 } 

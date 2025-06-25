@@ -3,6 +3,8 @@ import { Task, Goal, TimeBlock, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
 import GoalSelector from './GoalSelector';
 import { getValueIcon } from '../lib/valueIcons';
+import type { Database } from '../types/database';
+type TimeBlockRow = Database['public']['Tables']['time_blocks']['Row'];
 
 interface DashboardProps {
   tasks: Task[];
@@ -21,9 +23,9 @@ type ScheduleCompletion = {
 };
 
 export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }: DashboardProps) {
-  const [currentTimeBlock, setCurrentTimeBlock] = useState<TimeBlock | null>(null);
-  const [previousTimeBlock, setPreviousTimeBlock] = useState<TimeBlock | null>(null);
-  const [nextTimeBlock, setNextTimeBlock] = useState<TimeBlock | null>(null);
+  const [currentTimeBlock, setCurrentTimeBlock] = useState<TimeBlockRow | null>(null);
+  const [previousTimeBlock, setPreviousTimeBlock] = useState<TimeBlockRow | null>(null);
+  const [nextTimeBlock, setNextTimeBlock] = useState<TimeBlockRow | null>(null);
   const [completions, setCompletions] = useState<ScheduleCompletion[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [selectedGoalId, setSelectedGoalId] = useState<string>('');
@@ -69,91 +71,48 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     const now = new Date();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    const today = new Date().toDateString();
+    const dayOfWeek = now.getDay();
+    const todayStr = now.toISOString().split('T')[0];
 
-    // Convert time blocks to new format if needed
-    const convertedBlocks = timeBlocks.map(block => {
-      if (block.start_time && block.end_time) {
-        return block;
-      }
-      // Convert old format to new format
-      const [startHour, startMinute] = block.start_time ? block.start_time.split(':').map(Number) : [block.start_hour, 0];
-      const endTime = block.end_time || `${((block.start_hour + Math.floor(block.duration_m / 60)) % 24).toString().padStart(2, '0')}:${(block.duration_m % 60).toString().padStart(2, '0')}`;
-      
-      return {
-        ...block,
-        start_time: `${startHour.toString().padStart(2, '0')}:${startMinute.toString().padStart(2, '0')}`,
-        end_time: endTime
-      };
-    });
-
-    // Get today's scheduled blocks
-    const todaysBlocks = convertedBlocks.filter(block => {
+    // Use only TimeBlockRow fields
+    const todaysBlocks: TimeBlockRow[] = timeBlocks.filter(block => {
       if (block.recur === 'daily') return true;
       if (block.recur === 'weekdays' && dayOfWeek >= 1 && dayOfWeek <= 5) return true;
       if (block.recur === 'weekly' && dayOfWeek === 1) return true;
       if (block.custom_days && block.custom_days.includes(dayOfWeek)) return true;
+      if (block.recur === 'once' && block.event_date && block.event_date.split('T')[0] === todayStr) return true;
       return false;
     }).sort((a, b) => a.start_time.localeCompare(b.start_time));
 
-    const currentTime = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
-    
-    let currentBlock = null;
-    let previousBlock = null;
-    let nextBlock = null;
+    const currentMinutes = currentHour * 60 + currentMinute;
+    let previousBlock: TimeBlockRow | null = null;
+    let currentBlock: TimeBlockRow | null = null;
+    let nextBlock: TimeBlockRow | null = null;
 
-    // Find current, previous, and next blocks
     for (let i = 0; i < todaysBlocks.length; i++) {
       const block = todaysBlocks[i];
       const [startHour, startMinute] = block.start_time.split(':').map(Number);
       const [endHour, endMinute] = block.end_time.split(':').map(Number);
-      
       const blockStartMinutes = startHour * 60 + startMinute;
       const blockEndMinutes = endHour * 60 + endMinute;
-      const currentMinutes = currentHour * 60 + currentMinute;
-      
-      if (currentMinutes >= blockStartMinutes && currentMinutes <= blockEndMinutes) {
-        // Current block
+
+      if (currentMinutes >= blockStartMinutes && currentMinutes < blockEndMinutes) {
         currentBlock = block;
-        if (i > 0) previousBlock = todaysBlocks[i - 1];
-        if (i < todaysBlocks.length - 1) nextBlock = todaysBlocks[i + 1];
-        break;
-      } else if (currentMinutes < blockStartMinutes) {
-        // Future block - this is the next block
-        nextBlock = block;
-        if (i > 0) previousBlock = todaysBlocks[i - 1];
-        break;
-      } else {
-        // Past block - keep track of the most recent one
+      }
+      if (blockEndMinutes <= currentMinutes) {
         previousBlock = block;
       }
     }
 
-    // If no current block found, the last block we saw is the previous one
-    if (!currentBlock && !nextBlock && previousBlock) {
-      // Check if the previous block ended today (not yesterday)
-      const [prevEndHour, prevEndMinute] = previousBlock.end_time.split(':').map(Number);
-      const prevEndMinutes = prevEndHour * 60 + prevEndMinute;
-      const currentMinutes = currentHour * 60 + currentMinute;
-      
-      // Only show as previous if it ended within the last 24 hours
-      if (currentMinutes - prevEndMinutes <= 24 * 60) {
-        // Previous block is valid, look for next block
-        const nextBlockIndex = todaysBlocks.findIndex(block => 
-          block.id === previousBlock.id
-        ) + 1;
-        if (nextBlockIndex < todaysBlocks.length) {
-          nextBlock = todaysBlocks[nextBlockIndex];
-        }
-      } else {
-        // Previous block is too old, don't show it
-        previousBlock = null;
-      }
-    }
+    // Find the next block (smallest start time after now)
+    nextBlock = todaysBlocks.find(block => {
+      const [startHour, startMinute] = block.start_time.split(':').map(Number);
+      const blockStartMinutes = startHour * 60 + startMinute;
+      return blockStartMinutes > currentMinutes;
+    }) || null;
 
-    setCurrentTimeBlock(currentBlock);
     setPreviousTimeBlock(previousBlock);
+    setCurrentTimeBlock(currentBlock);
     setNextTimeBlock(nextBlock);
   };
 
@@ -215,7 +174,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     fetchCompletions();
   };
 
-  const getBlockStatusColor = (timeBlock: TimeBlock) => {
+  const getBlockStatusColor = (timeBlock: TimeBlockRow) => {
     const completion = getCompletionStatus(timeBlock.id);
     if (!completion) {
       // Check if it's past the end time
@@ -223,9 +182,8 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
       const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
       const endTime = new Date();
       endTime.setHours(endHour, endMinute, 0, 0);
-      
       if (now > endTime) {
-        return 'bg-yellow-900 border-yellow-600'; // Past due, untouched
+        return 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-yellow-900'; // Brighter yellow, animated
       }
       return 'bg-slate-700 border-slate-600'; // Future or current
     }
@@ -242,7 +200,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     }
   };
 
-  const getBlockStatusText = (timeBlock: TimeBlock) => {
+  const getBlockStatusText = (timeBlock: TimeBlockRow) => {
     const completion = getCompletionStatus(timeBlock.id);
     if (!completion) {
       const now = new Date();
@@ -405,139 +363,146 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     { value: 6, short: 'Sat', long: 'Saturday' },
   ];
 
+  // Add a 12-hour time formatter for the dashboard
+  const formatTime = (t: string) => {
+    if (!t) return '';
+    let [hour, minute] = t.split(':').map(Number);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12;
+    if (hour === 0) hour = 12;
+    return `${hour}:${minute.toString().padStart(2, '0')} ${ampm}`;
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Time Blocks Overview */}
+      {/* Time Blocks Overview - Only show up to three cards, no header */}
       {(previousTimeBlock || currentTimeBlock || nextTimeBlock) && (
-        <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
-          <h2 className="text-lg font-semibold text-slate-200 mb-4">Today's Schedule</h2>
-          <div className="space-y-3">
-            {/* Previous Time Block */}
-            {previousTimeBlock && (
-              <div className="p-3 sm:p-4 rounded-lg border border-slate-600 bg-slate-700/50 opacity-60">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium text-gray-400">Previous</h3>
-                    <h4 className="text-base sm:text-lg font-medium text-slate-300 truncate">{previousTimeBlock.title}</h4>
-                    <p className="text-sm text-gray-500">
-                      {previousTimeBlock.start_time} - {previousTimeBlock.end_time}
-                    </p>
-                    {getBlockStatusText(previousTimeBlock) && (
-                      <p className="text-xs text-gray-400 mt-1">{getBlockStatusText(previousTimeBlock)}</p>
-                    )}
-                  </div>
-                  <div className="flex gap-2 ml-2 flex-shrink-0">
-                    <button
-                      onClick={() => handleCompletion(previousTimeBlock.id, 'completed')}
-                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        getCompletionStatus(previousTimeBlock.id)?.status === 'completed'
-                          ? 'bg-green-600 border-green-600 text-white'
-                          : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
-                      }`}
-                      title="Mark as completed"
-                    >
-                      {getCompletionStatus(previousTimeBlock.id)?.status === 'completed' && '✓'}
-                    </button>
-                    <button
-                      onClick={() => handleCompletion(previousTimeBlock.id, 'failed')}
-                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        getCompletionStatus(previousTimeBlock.id)?.status === 'failed'
-                          ? 'bg-red-600 border-red-600 text-white'
-                          : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
-                      }`}
-                      title="Mark as failed"
-                    >
-                      {getCompletionStatus(previousTimeBlock.id)?.status === 'failed' && '✕'}
-                    </button>
-                  </div>
+        <div className="space-y-3">
+          {/* Previous Time Block */}
+          {previousTimeBlock && (
+            <div className={`p-3 sm:p-4 rounded-lg border ${getBlockStatusColor(previousTimeBlock)}` + (getBlockStatusColor(previousTimeBlock).includes('yellow') ? ' text-yellow-200' : '')}>
+              <div className="flex justify-between items-start">
+                <div className="flex-1 min-w-0">
+                  <h4 className={`text-base sm:text-lg font-medium truncate
+                    ${getBlockStatusColor(previousTimeBlock).includes('yellow') ? 'text-black' : 'text-slate-300'}`}>{previousTimeBlock.title}</h4>
+                  <p className="text-sm text-gray-500">
+                    {formatTime(previousTimeBlock.start_time)} - {formatTime(previousTimeBlock.end_time)}
+                  </p>
+                  {getBlockStatusText(previousTimeBlock) && (
+                    <p className="text-xs text-gray-400 mt-1">{getBlockStatusText(previousTimeBlock)}</p>
+                  )}
+                </div>
+                <div className="flex gap-2 ml-2 flex-shrink-0">
+                  <button
+                    onClick={() => handleCompletion(previousTimeBlock.id, 'completed')}
+                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      getCompletionStatus(previousTimeBlock.id)?.status === 'completed'
+                        ? 'bg-green-600 border-green-600 text-white'
+                        : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
+                    }`}
+                    title="Mark as completed"
+                  >
+                    {getCompletionStatus(previousTimeBlock.id)?.status === 'completed' && '✓'}
+                  </button>
+                  <button
+                    onClick={() => handleCompletion(previousTimeBlock.id, 'failed')}
+                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      getCompletionStatus(previousTimeBlock.id)?.status === 'failed'
+                        ? 'bg-red-600 border-red-600 text-white'
+                        : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
+                    }`}
+                    title="Mark as failed"
+                  >
+                    {getCompletionStatus(previousTimeBlock.id)?.status === 'failed' && '✕'}
+                  </button>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Current Time Block */}
-            {currentTimeBlock && (
-              <div className="bg-green-900 border border-green-600 rounded-lg p-3 sm:p-4">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium text-green-300">Current</h3>
-                    <h4 className="text-lg sm:text-xl font-medium text-green-200 truncate">{currentTimeBlock.title}</h4>
-                    <p className="text-sm text-green-300">
-                      {currentTimeBlock.start_time} - {currentTimeBlock.end_time}
-                    </p>
-                    {getBlockStatusText(currentTimeBlock) && (
-                      <p className="text-xs text-green-300 mt-1">{getBlockStatusText(currentTimeBlock)}</p>
-                    )}
-                  </div>
-                  <div className="flex gap-2 ml-2 flex-shrink-0">
-                    <button
-                      onClick={() => handleCompletion(currentTimeBlock.id, 'completed')}
-                      className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        getCompletionStatus(currentTimeBlock.id)?.status === 'completed'
-                          ? 'bg-green-600 border-green-600 text-white'
-                          : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
-                      }`}
-                      title="Mark as completed"
-                    >
-                      {getCompletionStatus(currentTimeBlock.id)?.status === 'completed' && '✓'}
-                    </button>
-                    <button
-                      onClick={() => handleCompletion(currentTimeBlock.id, 'failed')}
-                      className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        getCompletionStatus(currentTimeBlock.id)?.status === 'failed'
-                          ? 'bg-red-600 border-red-600 text-white'
-                          : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
-                      }`}
-                      title="Mark as failed"
-                    >
-                      {getCompletionStatus(currentTimeBlock.id)?.status === 'failed' && '✕'}
-                    </button>
-                  </div>
+          {/* Current Time Block - use same color/animation as schedule */}
+          {currentTimeBlock && (
+            <div className="border-orange-400 animate-gradient-slow bg-slate-800 border rounded-lg p-3 sm:p-4">
+              <div className="flex justify-between items-start">
+                <div className="flex-1 min-w-0">
+                  <h4 className={`text-lg sm:text-xl font-medium truncate
+                    ${getBlockStatusColor(currentTimeBlock).includes('yellow') ? 'text-black' : 'text-orange-100'}`}>{currentTimeBlock.title}</h4>
+                  <p className="text-sm text-orange-200">
+                    {formatTime(currentTimeBlock.start_time)} - {formatTime(currentTimeBlock.end_time)}
+                  </p>
+                  {getBlockStatusText(currentTimeBlock) && (
+                    <p className="text-xs text-orange-200 mt-1">{getBlockStatusText(currentTimeBlock)}</p>
+                  )}
+                </div>
+                <div className="flex gap-2 ml-2 flex-shrink-0">
+                  <button
+                    onClick={() => handleCompletion(currentTimeBlock.id, 'completed')}
+                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      getCompletionStatus(currentTimeBlock.id)?.status === 'completed'
+                        ? 'bg-green-600 border-green-600 text-white'
+                        : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
+                    }`}
+                    title="Mark as completed"
+                  >
+                    {getCompletionStatus(currentTimeBlock.id)?.status === 'completed' && '✓'}
+                  </button>
+                  <button
+                    onClick={() => handleCompletion(currentTimeBlock.id, 'failed')}
+                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      getCompletionStatus(currentTimeBlock.id)?.status === 'failed'
+                        ? 'bg-red-600 border-red-600 text-white'
+                        : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
+                    }`}
+                    title="Mark as failed"
+                  >
+                    {getCompletionStatus(currentTimeBlock.id)?.status === 'failed' && '✕'}
+                  </button>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Next Time Block */}
-            {nextTimeBlock && (
-              <div className={`p-3 sm:p-4 rounded-lg border ${getBlockStatusColor(nextTimeBlock)}`}>
-                <div className="flex justify-between items-start">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium text-gray-300">Next</h3>
-                    <h4 className="text-base sm:text-lg font-medium text-slate-200 truncate">{nextTimeBlock.title}</h4>
-                    <p className="text-sm text-gray-400">
-                      {nextTimeBlock.start_time} - {nextTimeBlock.end_time}
-                    </p>
-                    {getBlockStatusText(nextTimeBlock) && (
-                      <p className="text-xs text-gray-300 mt-1">{getBlockStatusText(nextTimeBlock)}</p>
-                    )}
-                  </div>
-                  <div className="flex gap-2 ml-2 flex-shrink-0">
-                    <button
-                      onClick={() => handleCompletion(nextTimeBlock.id, 'completed')}
-                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        getCompletionStatus(nextTimeBlock.id)?.status === 'completed'
-                          ? 'bg-green-600 border-green-600 text-white'
-                          : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
-                      }`}
-                      title="Mark as completed"
-                    >
-                      {getCompletionStatus(nextTimeBlock.id)?.status === 'completed' && '✓'}
-                    </button>
-                    <button
-                      onClick={() => handleCompletion(nextTimeBlock.id, 'failed')}
-                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        getCompletionStatus(nextTimeBlock.id)?.status === 'failed'
-                          ? 'bg-red-600 border-red-600 text-white'
-                          : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
-                      }`}
-                      title="Mark as failed"
-                    >
-                      {getCompletionStatus(nextTimeBlock.id)?.status === 'failed' && '✕'}
-                    </button>
-                  </div>
+          {/* Next Time Block (if still today) */}
+          {nextTimeBlock && (
+            <div className={`p-3 sm:p-4 rounded-lg border ${getBlockStatusColor(nextTimeBlock)}`}>
+              <div className="flex justify-between items-start">
+                <div className="flex-1 min-w-0">
+                  <h4 className={`text-base sm:text-lg font-medium truncate
+                    ${getBlockStatusColor(nextTimeBlock).includes('yellow') ? 'text-black' : 'text-slate-200'}`}>{nextTimeBlock.title}</h4>
+                  <p className="text-sm text-gray-400">
+                    {formatTime(nextTimeBlock.start_time)} - {formatTime(nextTimeBlock.end_time)}
+                  </p>
+                  {getBlockStatusText(nextTimeBlock) && (
+                    <p className="text-xs text-gray-300 mt-1">{getBlockStatusText(nextTimeBlock)}</p>
+                  )}
+                </div>
+                <div className="flex gap-2 ml-2 flex-shrink-0">
+                  <button
+                    onClick={() => handleCompletion(nextTimeBlock.id, 'completed')}
+                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      getCompletionStatus(nextTimeBlock.id)?.status === 'completed'
+                        ? 'bg-green-600 border-green-600 text-white'
+                        : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
+                    }`}
+                    title="Mark as completed"
+                  >
+                    {getCompletionStatus(nextTimeBlock.id)?.status === 'completed' && '✓'}
+                  </button>
+                  <button
+                    onClick={() => handleCompletion(nextTimeBlock.id, 'failed')}
+                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      getCompletionStatus(nextTimeBlock.id)?.status === 'failed'
+                        ? 'bg-red-600 border-red-600 text-white'
+                        : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
+                    }`}
+                    title="Mark as failed"
+                  >
+                    {getCompletionStatus(nextTimeBlock.id)?.status === 'failed' && '✕'}
+                  </button>
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
