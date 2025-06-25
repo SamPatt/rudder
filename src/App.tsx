@@ -148,7 +148,7 @@ function App() {
       <div className="min-h-screen bg-slate-900 text-slate-200">
         <Navigation />
 
-        <main className="max-w-7xl mx-auto py-4 px-4 sm:py-6 sm:px-6 lg:px-8">
+        <main className="w-full sm:max-w-7xl sm:mx-auto py-4 px-2 sm:py-6 sm:px-6 lg:px-8">
           <Routes>
             <Route path="/" element={
               <Dashboard 

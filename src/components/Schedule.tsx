@@ -48,6 +48,7 @@ export default function Schedule() {
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const lastStartTimeRef = useRef(formData.start_time);
   const [endTimeManuallyChanged, setEndTimeManuallyChanged] = useState(false);
+  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTimeBlocks();
@@ -436,13 +437,75 @@ export default function Schedule() {
   // Format time as HH:mm
   const formatTime = (t: string) => t.slice(0, 5);
 
+  // Helper to group overlapping events and assign columns
+  function groupAndAssignColumns(blocks) {
+    // Convert time to minutes for easier comparison
+    function toMinutes(t) {
+      const [h, m] = t.split(':').map(Number);
+      return h * 60 + m;
+    }
+    // Sort by start time
+    const sorted = [...blocks].sort((a, b) => toMinutes(a.start_time) - toMinutes(b.start_time));
+    const groups = [];
+    let currentGroup = [];
+    let lastEnd = -1;
+    for (const block of sorted) {
+      const start = toMinutes(block.start_time);
+      const end = toMinutes(block.end_time);
+      if (currentGroup.length === 0 || start < lastEnd) {
+        currentGroup.push(block);
+        lastEnd = Math.max(lastEnd, end);
+      } else {
+        groups.push(currentGroup);
+        currentGroup = [block];
+        lastEnd = end;
+      }
+    }
+    if (currentGroup.length) groups.push(currentGroup);
+    // Assign columns within each group
+    const result = [];
+    for (const group of groups) {
+      if (group.length === 1) {
+        result.push({ ...group[0], _col: 0, _colCount: 1 });
+      } else {
+        // For each event, assign a column so that no two overlapping events share a column
+        const cols = [];
+        for (let i = 0; i < group.length; i++) {
+          let col = 0;
+          while (cols.some((c, idx) => idx !== i && c === col &&
+            !(toMinutes(group[i].end_time) <= toMinutes(group[idx].start_time) ||
+              toMinutes(group[i].start_time) >= toMinutes(group[idx].end_time)))) {
+            col++;
+          }
+          cols[i] = col;
+        }
+        for (let i = 0; i < group.length; i++) {
+          result.push({ ...group[i], _col: cols[i], _colCount: group.length });
+        }
+      }
+    }
+    return result;
+  }
+
+  // Determine which hours to display
+  const earlyEventExists = timeBlocks.some(tb => {
+    const [startHour] = tb.start_time.split(':').map(Number);
+    const [endHour] = tb.end_time.split(':').map(Number);
+    return (
+      (startHour < 6 && isTimeBlockScheduledForDate(tb, currentDate)) ||
+      (endHour > 0 && endHour <= 6 && isTimeBlockScheduledForDate(tb, currentDate))
+    );
+  });
+  const currentHour = new Date().getHours();
+  const showEarly = earlyEventExists || currentHour < 6;
+  const hourRange = showEarly ? Array.from({ length: 24 }, (_, h) => h) : Array.from({ length: 18 }, (_, h) => h + 6);
+
   return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 sm:mb-6 space-y-3 sm:space-y-0">
-        <h1 className="text-2xl sm:text-3xl font-bold text-white">Today's Schedule</h1>
+    <div className="p-2 sm:p-6 sm:max-w-6xl sm:mx-auto w-full">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 sm:mb-6 space-y-3 sm:space-y-0 w-full">
         <button
           onClick={() => setShowForm(!showForm)}
-          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
+          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-none sm:rounded-lg transition-colors w-full sm:w-auto"
         >
           {showForm ? 'Cancel' : 'Add Time Block'}
         </button>
@@ -609,17 +672,16 @@ export default function Schedule() {
         </div>
       )}
 
-      <div className="bg-slate-800 rounded-lg p-4 sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 space-y-3 sm:space-y-0">
-          <h2 className="text-lg sm:text-xl font-semibold text-white">
-            {currentDate.toLocaleDateString('en-US', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
+      <div className="bg-slate-800 rounded-none sm:rounded-lg p-2 sm:p-6 w-full">
+        <div className="mb-2 w-full flex flex-col items-center">
+          <h2 className="text-lg sm:text-xl font-semibold text-white text-center w-full">
+            {currentDate.toLocaleDateString('en-US', {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric'
             })}
           </h2>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 justify-center mt-2">
             <button
               onClick={() => {
                 const prev = new Date(currentDate);
@@ -628,7 +690,7 @@ export default function Schedule() {
               }}
               className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded transition-colors text-sm"
             >
-              Previous Day
+              &lt;
             </button>
             <button
               onClick={() => setCurrentDate(new Date())}
@@ -644,32 +706,65 @@ export default function Schedule() {
               }}
               className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded transition-colors text-sm"
             >
-              Next Day
+              &gt;
             </button>
           </div>
         </div>
-
-        <div className="relative">
-          {/* Time blocks positioned absolutely */}
-          {timeBlocks
-            .filter(timeBlock => isTimeBlockScheduledForDate(timeBlock, currentDate))
-            .map((timeBlock) => {
+        {/* Schedule grid: 24 rows (one per hour), hour labels fixed, blocks span rows */}
+        <div className="grid grid-cols-[4rem_1fr]" style={{ gridTemplateRows: `repeat(${hourRange.length}, 60px)`, position: 'relative' }}>
+          {/* Hour labels */}
+          {hourRange.map(hour => (
+            <div
+              key={`label-${hour}`}
+              className="col-start-1 row-start-[auto] flex items-center justify-end pr-2 select-none"
+              style={{ gridRow: hour - (showEarly ? 0 : 6) + 1, zIndex: 2 }}
+            >
+              <span className="text-xs sm:text-sm text-gray-400 font-mono">{`${hour.toString().padStart(2, '0')}:00`}</span>
+            </div>
+          ))}
+          {/* Full-width hour lines */}
+          {hourRange.map(hour => (
+            <div
+              key={`line-${hour}`}
+              className="col-span-2 absolute left-0 right-0 border-b border-slate-700 pointer-events-none"
+              style={{ top: `${(hour - (showEarly ? 0 : 6)) * 60}px`, height: 0, zIndex: 1 }}
+            />
+          ))}
+          {/* Time blocks with improved overlap grouping and column assignment */}
+          {(() => {
+            // Get all visible blocks
+            const visibleBlocks = timeBlocks
+              .filter(timeBlock => isTimeBlockScheduledForDate(timeBlock, currentDate))
+              .filter(timeBlock => {
+                const [startHour] = timeBlock.start_time.split(':').map(Number);
+                const currentHour = new Date().getHours();
+                const isEarlyMorning = startHour >= 0 && startHour < 6;
+                const isCurrentTimeInEarlyMorning = currentHour >= 0 && currentHour < 6;
+                if (isEarlyMorning && !isCurrentTimeInEarlyMorning) {
+                  return false;
+                }
+                return true;
+              });
+            // Group and assign columns
+            const blocksWithCols = groupAndAssignColumns(visibleBlocks);
+            return blocksWithCols.map((timeBlock, i) => {
               const completion = getCompletionStatus(timeBlock.id, currentDate);
               const isCurrentTime = isTimeBlockCurrent(timeBlock, currentDate);
               const [startHour, startMinute] = timeBlock.start_time.split(':').map(Number);
               const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
-              
-              // Calculate position and height
-              const startMinutes = startHour * 60 + startMinute;
-              const endMinutes = endHour * 60 + endMinute;
-              const duration = endMinutes - startMinutes;
-              const top = (startMinutes / 60) * 60; // 60px per hour
-              const height = (duration / 60) * 60;
-              
+              // Only render if block is in hourRange
+              if (!hourRange.some(h => h === startHour || (startHour < h && endHour > h))) return null;
+              const top = ((startHour - (showEarly ? 0 : 6)) * 60) + startMinute;
+              const height = ((endHour * 60 + endMinute) - (startHour * 60 + startMinute));
+              // Calculate width and left offset for columns
+              const colCount = timeBlock._colCount || 1;
+              const width = colCount === 1 ? '100%' : `calc((100% - 0.5rem * ${colCount - 1}) / ${colCount})`;
+              const left = colCount === 1 ? '0' : `calc((${width} + 0.5rem) * ${timeBlock._col})`;
+              const isActive = activeBlockId === timeBlock.id;
               return (
-                <div 
+                <div
                   key={timeBlock.id}
-                  className={`absolute left-12 sm:left-16 right-2 sm:right-4 p-2 sm:p-3 rounded border transition-colors flex flex-col h-full justify-between overflow-visible
+                  className={`col-start-2 z-10 p-2 sm:p-3 rounded border transition-colors flex flex-col justify-between overflow-visible absolute cursor-pointer
                     ${isCurrentTime ? 'border-orange-400 animate-gradient-slow' :
                       completion?.status === 'completed' ? 'bg-green-900 border-green-600' :
                       completion?.status === 'failed' ? 'bg-red-900 border-red-600' :
@@ -679,49 +774,16 @@ export default function Schedule() {
                   style={{
                     top: `${top}px`,
                     height: `${height}px`,
-                    zIndex: isCurrentTime ? 10 : 5
+                    left,
+                    width,
+                    right: 'auto'
+                  }}
+                  onClick={e => {
+                    e.stopPropagation();
+                    setActiveBlockId(isActive ? null : timeBlock.id);
                   }}
                 >
-                  {/* Action buttons row */}
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    <button
-                      onClick={() => handleCompletion(timeBlock.id, currentDate, 'completed')}
-                      className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
-                        completion?.status === 'completed'
-                          ? 'bg-green-600 border-green-600 text-white'
-                          : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
-                      }`}
-                      title="Mark as completed"
-                    >
-                      ✓
-                    </button>
-                    <button
-                      onClick={() => handleCompletion(timeBlock.id, currentDate, 'failed')}
-                      className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
-                        completion?.status === 'failed'
-                          ? 'bg-red-600 border-red-600 text-white'
-                          : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
-                      }`}
-                      title="Mark as failed"
-                    >
-                      ✕
-                    </button>
-                    <button
-                      onClick={() => handleEdit(timeBlock)}
-                      className="w-5 h-5 rounded-full border border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white flex items-center justify-center transition-colors"
-                      title="Edit time block"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      onClick={() => handleDelete(timeBlock.id)}
-                      className="w-5 h-5 rounded-full border border-red-500 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors"
-                      title="Delete time block"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                  {/* Time block details */}
+                  {/* Show details/buttons only if active or on desktop */}
                   <div className="flex-1 min-w-0 flex flex-col justify-center">
                     <h4 className={`text-xs sm:text-sm font-medium truncate ${
                       isCurrentTime ? 'text-orange-100' :
@@ -742,55 +804,68 @@ export default function Schedule() {
                       </p>
                     )}
                   </div>
+                  {/* Action buttons: show if active or on desktop */}
+                  {(isActive || window.innerWidth >= 640) && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <button
+                        onClick={e => { e.stopPropagation(); handleCompletion(timeBlock.id, currentDate, 'completed'); }}
+                        className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                          completion?.status === 'completed'
+                            ? 'bg-green-600 border-green-600 text-white'
+                            : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
+                        }`}
+                        title="Mark as completed"
+                      >
+                        ✓
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleCompletion(timeBlock.id, currentDate, 'failed'); }}
+                        className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                          completion?.status === 'failed'
+                            ? 'bg-red-600 border-red-600 text-white'
+                            : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
+                        }`}
+                        title="Mark as failed"
+                      >
+                        ✕
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleEdit(timeBlock); }}
+                        className="w-5 h-5 rounded-full border border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white flex items-center justify-center transition-colors"
+                        title="Edit time block"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleDelete(timeBlock.id); }}
+                        className="w-5 h-5 rounded-full border border-red-500 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors"
+                        title="Delete time block"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
-            })}
-
-          {/* Hourly grid lines */}
-          <div className="grid grid-cols-1 gap-0" style={{ height: '1440px' }}>
-            {Array.from({ length: 24 }, (_, hour) => {
-              const timeString = `${hour.toString().padStart(2, '0')}:00`;
-              const isCurrentHour = new Date().getHours() === hour && 
-                currentDate.toDateString() === new Date().toDateString();
-
-              return (
-                <div 
-                  key={hour} 
-                  className={`flex items-center border-b border-slate-700 py-2 ${
-                    isCurrentHour ? 'bg-green-900/20' : ''
-                  }`}
-                  style={{ height: '60px', cursor: 'pointer' }}
-                  onClick={() => {
-                    setFormData(prev => ({
-                      ...prev,
-                      start_time: `${hour.toString().padStart(2, '0')}:00`,
-                      end_time: `${((hour + 1) % 24).toString().padStart(2, '0')}:00`,
-                    }));
-                    setEditingBlock(null);
-                    setShowForm(true);
-                  }}
-                >
-                  {/* Time label */}
-                  <div className="w-12 sm:w-16 text-xs sm:text-sm text-gray-400 font-mono flex-shrink-0">
-                    {timeString}
-                  </div>
-                  
-                  {/* Empty space for time blocks */}
-                  <div className="flex-1">
-                    {hour >= 6 && hour <= 22 && 
-                     timeBlocks.filter(timeBlock => {
-                       const [startHour] = timeBlock.start_time.split(':').map(Number);
-                       return hour === startHour && isTimeBlockScheduledForDate(timeBlock, currentDate);
-                     }).length === 0 && (
-                      <div className="text-gray-600 text-xs sm:text-sm">
-                        Free time
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+            });
+          })()}
+          {/* Clickable overlay for adding a block to a specific hour */}
+          {hourRange.map(hour => (
+            <div
+              key={`click-${hour}`}
+              className="col-start-2 z-0"
+              style={{ gridRow: hour - (showEarly ? 0 : 6) + 1, height: '60px', position: 'relative', cursor: 'pointer' }}
+              onClick={() => {
+                setFormData(prev => ({
+                  ...prev,
+                  start_time: `${hour.toString().padStart(2, '0')}:00`,
+                  end_time: `${((hour + 1) % 24).toString().padStart(2, '0')}:00`,
+                }));
+                setEditingBlock(null);
+                setShowForm(true);
+              }}
+            />
+          ))}
         </div>
       </div>
 
