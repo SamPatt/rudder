@@ -41,6 +41,18 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     return () => clearInterval(interval);
   }, [timeBlocks]);
 
+  // Refetch tasks when mounted or when a task is toggled
+  useEffect(() => {
+    const fetchTasks = async () => {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select(`*, task_goals (*, goal:goals (*, value:values (*)))`)
+        .order('created_at', { ascending: false });
+      if (!error && data) setTasks(data);
+    };
+    fetchTasks();
+  }, []);
+
   const fetchCompletions = async () => {
     const { data, error } = await supabase
       .from('schedule_completions')

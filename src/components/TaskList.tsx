@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Task, Goal, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
 import GoalSelector from './GoalSelector';
@@ -20,6 +20,18 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
   const [recurType, setRecurType] = useState<'daily' | 'weekdays' | 'weekly' | 'custom'>('daily');
   const [customDays, setCustomDays] = useState<number[]>([]);
   const [editMode, setEditMode] = useState<{ [taskId: string]: boolean }>({});
+
+  // Refetch tasks when mounted or when a task is toggled
+  useEffect(() => {
+    const fetchTasks = async () => {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select(`*, task_goals (*, goal:goals (*, value:values (*)))`)
+        .order('created_at', { ascending: false });
+      if (!error && data) setTasks(data);
+    };
+    fetchTasks();
+  }, []);
 
   const handleAddTask = () => {
     if (!newTaskTitle.trim()) return;

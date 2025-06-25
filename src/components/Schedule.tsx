@@ -65,7 +65,7 @@ export default function Schedule() {
   const fetchTimeBlocks = async () => {
     const { data, error } = await supabase
       .from('time_blocks')
-      .select('*')
+      .select('*, task:tasks(*)')
       .order('start_time', { ascending: true });
     
     if (error) {
@@ -162,7 +162,7 @@ export default function Schedule() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const timeBlockData = {
       ...formData,
       custom_days: formData.recur === 'custom' ? formData.custom_days : null,
@@ -195,10 +195,22 @@ export default function Schedule() {
         fetchTimeBlocks();
       }
     } else {
-      // Create new time block
+      // Create new task first
+      const { data: taskData, error: taskError } = await supabase
+        .from('tasks')
+        .insert([{ title: formData.title, is_done: false }])
+        .select('id')
+        .single();
+
+      if (taskError || !taskData) {
+        console.error('Error creating task:', taskError);
+        return;
+      }
+
+      // Create new time block with task_id
       const { error } = await supabase
         .from('time_blocks')
-        .insert([timeBlockData]);
+        .insert([{ ...timeBlockData, task_id: taskData.id }]);
 
       if (error) {
         console.error('Error creating time block:', error);
@@ -394,24 +406,22 @@ export default function Schedule() {
       }
     }
 
-    // If completed, create a task
+    // If completed, also mark the associated task as done
     if (status === 'completed') {
       const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
-      if (timeBlock) {
+      if (timeBlock && timeBlock.task_id) {
         const { error: taskError } = await supabase
           .from('tasks')
-          .insert([{
-            title: `${timeBlock.title} (${timeBlock.start_time} - ${timeBlock.end_time})`,
-            is_done: true,
-          }]);
-        
+          .update({ is_done: true })
+          .eq('id', timeBlock.task_id);
         if (taskError) {
-          console.error('Error creating task:', taskError);
+          console.error('Error updating task as done:', taskError);
         }
       }
     }
 
     fetchCompletions();
+    fetchTimeBlocks();
   };
 
   const getWeekDates = (date: Date): Date[] => {
@@ -765,11 +775,17 @@ export default function Schedule() {
                 <div
                   key={timeBlock.id}
                   className={`col-start-2 z-10 p-2 sm:p-3 rounded border transition-colors flex flex-col justify-between overflow-visible absolute cursor-pointer
-                    ${isCurrentTime ? 'border-orange-400 animate-gradient-slow' :
-                      completion?.status === 'completed' ? 'bg-green-900 border-green-600' :
-                      completion?.status === 'failed' ? 'bg-red-900 border-red-600' :
-                      completion?.status === 'skipped' ? 'bg-red-900 border-red-600' :
-                      'bg-slate-700 border-slate-600'}
+                    ${
+                      (completion?.status === 'completed' || timeBlock.task?.is_done)
+                        ? 'bg-green-900 border-green-600'
+                        : isCurrentTime
+                        ? 'border-orange-400 animate-gradient-slow'
+                        : completion?.status === 'failed'
+                        ? 'bg-red-900 border-red-600'
+                        : completion?.status === 'skipped'
+                        ? 'bg-red-900 border-red-600'
+                        : 'bg-slate-700 border-slate-600'
+                    }
                   `}
                   style={{
                     top: `${top}px`,
@@ -787,21 +803,13 @@ export default function Schedule() {
                   <div className="flex-1 min-w-0 flex flex-col justify-center">
                     <h4 className={`text-xs sm:text-sm font-medium truncate ${
                       isCurrentTime ? 'text-orange-100' :
-                      completion?.status === 'completed' ? 'text-green-200' :
+                      completion?.status === 'completed' || timeBlock.task?.is_done ? 'text-green-200' :
                       'text-gray-300'
                     }`}>
-                      {timeBlock.title} <span className="text-xs text-gray-400">({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
+                      {timeBlock.task?.title || timeBlock.title} <span className="text-xs text-gray-400">({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
                     </h4>
-                    {completion && (
-                      <p className={`text-xs mt-1 ${
-                        completion.status === 'completed' ? 'text-green-400' :
-                        completion.status === 'failed' ? 'text-red-400' :
-                        'text-yellow-400'
-                      }`}>
-                        {completion.status === 'completed' ? '✓ Completed' :
-                         completion.status === 'failed' ? '✕ Failed' :
-                         '⚠ Skipped'}
-                      </p>
+                    {(completion?.status === 'completed' || timeBlock.task?.is_done) && (
+                      <p className="text-xs mt-1 text-green-400">✓ Completed</p>
                     )}
                   </div>
                   {/* Action buttons: show if active or on desktop */}
