@@ -183,7 +183,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
       const endTime = new Date();
       endTime.setHours(endHour, endMinute, 0, 0);
       if (now > endTime) {
-        return 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-yellow-900'; // Brighter yellow, animated
+        return 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-black opacity-80'; // Brighter yellow, animated, de-emphasized
       }
       return 'bg-slate-700 border-slate-600'; // Future or current
     }
@@ -385,11 +385,11 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                 <div className="flex-1 min-w-0">
                   <h4 className={`text-base sm:text-lg font-medium truncate
                     ${getBlockStatusColor(previousTimeBlock).includes('yellow') ? 'text-black' : 'text-slate-300'}`}>{previousTimeBlock.title}</h4>
-                  <p className="text-sm text-gray-500">
+                  <p className={`text-sm ${getBlockStatusColor(previousTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-gray-500'}`}>
                     {formatTime(previousTimeBlock.start_time)} - {formatTime(previousTimeBlock.end_time)}
                   </p>
                   {getBlockStatusText(previousTimeBlock) && (
-                    <p className="text-xs text-gray-400 mt-1">{getBlockStatusText(previousTimeBlock)}</p>
+                    <p className={`text-xs mt-1 ${getBlockStatusColor(previousTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-gray-400'}`}>{getBlockStatusText(previousTimeBlock)}</p>
                   )}
                 </div>
                 <div className="flex gap-2 ml-2 flex-shrink-0">
@@ -427,11 +427,11 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                 <div className="flex-1 min-w-0">
                   <h4 className={`text-lg sm:text-xl font-medium truncate
                     ${getBlockStatusColor(currentTimeBlock).includes('yellow') ? 'text-black' : 'text-orange-100'}`}>{currentTimeBlock.title}</h4>
-                  <p className="text-sm text-orange-200">
+                  <p className={`text-sm ${getBlockStatusColor(currentTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-orange-200'}`}>
                     {formatTime(currentTimeBlock.start_time)} - {formatTime(currentTimeBlock.end_time)}
                   </p>
                   {getBlockStatusText(currentTimeBlock) && (
-                    <p className="text-xs text-orange-200 mt-1">{getBlockStatusText(currentTimeBlock)}</p>
+                    <p className={`text-xs mt-1 ${getBlockStatusColor(currentTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-orange-200'}`}>{getBlockStatusText(currentTimeBlock)}</p>
                   )}
                 </div>
                 <div className="flex gap-2 ml-2 flex-shrink-0">
@@ -469,11 +469,11 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                 <div className="flex-1 min-w-0">
                   <h4 className={`text-base sm:text-lg font-medium truncate
                     ${getBlockStatusColor(nextTimeBlock).includes('yellow') ? 'text-black' : 'text-slate-200'}`}>{nextTimeBlock.title}</h4>
-                  <p className="text-sm text-gray-400">
+                  <p className={`text-sm ${getBlockStatusColor(nextTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-gray-400'}`}>
                     {formatTime(nextTimeBlock.start_time)} - {formatTime(nextTimeBlock.end_time)}
                   </p>
                   {getBlockStatusText(nextTimeBlock) && (
-                    <p className="text-xs text-gray-300 mt-1">{getBlockStatusText(nextTimeBlock)}</p>
+                    <p className={`text-xs mt-1 ${getBlockStatusColor(nextTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-gray-300'}`}>{getBlockStatusText(nextTimeBlock)}</p>
                   )}
                 </div>
                 <div className="flex gap-2 ml-2 flex-shrink-0">

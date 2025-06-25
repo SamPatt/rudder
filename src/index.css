@@ -143,22 +143,23 @@ input::placeholder {
 
 @keyframes yellow-gradient-slow {
   0% {
-    background: linear-gradient(90deg, #fde68a 0%, #fbbf24 50%, #fde68a 100%);
+    background: linear-gradient(90deg, rgba(253,230,138,0.7) 0%, rgba(251,191,36,0.7) 50%, rgba(253,230,138,0.7) 100%);
     background-size: 200% 100%;
     background-position: 0% 50%;
   }
   50% {
-    background: linear-gradient(90deg, #fde68a 0%, #fbbf24 50%, #fde68a 100%);
+    background: linear-gradient(90deg, rgba(253,230,138,0.7) 0%, rgba(251,191,36,0.7) 50%, rgba(253,230,138,0.7) 100%);
     background-size: 200% 100%;
     background-position: 100% 50%;
   }
   100% {
-    background: linear-gradient(90deg, #fde68a 0%, #fbbf24 50%, #fde68a 100%);
+    background: linear-gradient(90deg, rgba(253,230,138,0.7) 0%, rgba(251,191,36,0.7) 50%, rgba(253,230,138,0.7) 100%);
     background-size: 200% 100%;
     background-position: 0% 50%;
   }
 }
 .animate-yellow-gradient {
   animation: yellow-gradient-slow 4s ease-in-out infinite;
-  color: #3a2c00 !important;
+  color: #181204 !important;
+  opacity: 0.85;
 } 

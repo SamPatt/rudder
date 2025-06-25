@@ -535,6 +535,15 @@ export default function Schedule() {
   const showEarly = earlyEventExists || currentHour < 6;
   const hourRange = showEarly ? Array.from({ length: 24 }, (_, h) => h) : Array.from({ length: 18 }, (_, h) => h + 6);
 
+  function isPastDue(timeBlock, completion) {
+    if (completion) return false;
+    const now = new Date();
+    const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
+    const endTime = new Date();
+    endTime.setHours(endHour, endMinute, 0, 0);
+    return now > endTime;
+  }
+
   return (
     <div className="p-2 sm:p-6 sm:max-w-6xl sm:mx-auto w-full">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 sm:mb-6 space-y-3 sm:space-y-0 w-full">
@@ -845,23 +854,12 @@ export default function Schedule() {
                     <h4 className={`text-xs sm:text-sm font-medium truncate
                       ${isCurrentTime ? 'text-orange-100' :
                         (completion?.status === 'completed' || timeBlock.task?.is_done) ? 'text-green-200' :
-                        (() => {
-                          // Past-due, untouched
-                          const now = new Date();
-                          const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
-                          const endTime = new Date();
-                          endTime.setHours(endHour, endMinute, 0, 0);
-                          if (!completion && now > endTime) {
-                            return 'text-black';
-                          }
-                          return 'text-gray-300';
-                        })()
-                      }
-                    }`}>
-                      {timeBlock.task?.title || timeBlock.title} <span className="text-xs text-gray-400">({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
+                        isPastDue(timeBlock, completion) ? 'text-gray-800' : 'text-gray-400'
+                      }`}>
+                      {timeBlock.task?.title || timeBlock.title} <span className={`text-xs ${isPastDue(timeBlock, completion) ? 'text-gray-800' : 'text-gray-400'}`}>({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
                     </h4>
-                    {(completion?.status === 'completed' || timeBlock.task?.is_done) && (
-                      <p className="text-xs mt-1 text-green-400">✓ Completed</p>
+                    {isPastDue(timeBlock, completion) && (
+                      <p className="text-xs mt-1 text-gray-800">Past due</p>
                     )}
                   </div>
                   {/* Action buttons: show if active or on desktop */}
