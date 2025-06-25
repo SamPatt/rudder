@@ -95,11 +95,11 @@ export default function GoalManager({ goals, values, setGoals, setValues }: Goal
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Add New Value */}
-      <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+      <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
         <h2 className="text-lg font-semibold text-slate-200 mb-4">Add New Value</h2>
-        <div className="flex gap-4">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
           <input
             type="text"
             value={newValue}
@@ -118,9 +118,9 @@ export default function GoalManager({ goals, values, setGoals, setValues }: Goal
       </div>
 
       {/* Add New Goal */}
-      <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+      <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
         <h2 className="text-lg font-semibold text-slate-200 mb-4">Add New Goal</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           <input
             type="text"
             value={newGoal.name}
@@ -156,14 +156,14 @@ export default function GoalManager({ goals, values, setGoals, setValues }: Goal
       </div>
 
       {/* Values and Goals */}
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {goalsByValue.map(({ value, goals: valueGoals }) => (
-          <div key={value.id} className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
-            <div className="flex items-center justify-between mb-4">
+          <div key={value.id} className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 space-y-2 sm:space-y-0">
               <h3 className="text-lg font-semibold text-slate-200">{value.name}</h3>
               <button
                 onClick={() => deleteValue(value.id)}
-                className="text-red-400 hover:text-red-300 text-sm transition-colors"
+                className="text-red-400 hover:text-red-300 text-sm transition-colors self-start sm:self-auto"
               >
                 Delete Value
               </button>
@@ -174,8 +174,8 @@ export default function GoalManager({ goals, values, setGoals, setValues }: Goal
             ) : (
               <div className="space-y-3">
                 {valueGoals.map(goal => (
-                  <div key={goal.id} className="flex items-center justify-between p-3 border border-slate-600 rounded-lg bg-slate-700">
-                    <div>
+                  <div key={goal.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 border border-slate-600 rounded-lg bg-slate-700 space-y-2 sm:space-y-0">
+                    <div className="flex-1 min-w-0">
                       <h4 className="font-medium text-slate-200">{goal.name}</h4>
                       {goal.target_by && (
                         <p className="text-sm text-slate-400">
@@ -185,7 +185,7 @@ export default function GoalManager({ goals, values, setGoals, setValues }: Goal
                     </div>
                     <button
                       onClick={() => deleteGoal(goal.id)}
-                      className="text-red-400 hover:text-red-300 text-sm transition-colors"
+                      className="text-red-400 hover:text-red-300 text-sm transition-colors self-start sm:self-auto"
                     >
                       Delete
                     </button>
@@ -198,15 +198,15 @@ export default function GoalManager({ goals, values, setGoals, setValues }: Goal
       </div>
 
       {/* All Goals Summary */}
-      <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+      <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
         <h2 className="text-lg font-semibold text-slate-200 mb-4">All Goals</h2>
         {goals.length === 0 ? (
           <p className="text-slate-400">No goals yet. Add some above!</p>
         ) : (
           <div className="space-y-2">
             {goals.map(goal => (
-              <div key={goal.id} className="flex items-center justify-between p-3 border border-slate-600 rounded-lg bg-slate-700">
-                <div>
+              <div key={goal.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 border border-slate-600 rounded-lg bg-slate-700 space-y-2 sm:space-y-0">
+                <div className="flex-1 min-w-0">
                   <h4 className="font-medium text-slate-200">{goal.name}</h4>
                   <p className="text-sm text-slate-400">
                     Value: {goal.value?.name}
@@ -215,7 +215,7 @@ export default function GoalManager({ goals, values, setGoals, setValues }: Goal
                 </div>
                 <button
                   onClick={() => deleteGoal(goal.id)}
-                  className="text-red-400 hover:text-red-300 text-sm transition-colors"
+                  className="text-red-400 hover:text-red-300 text-sm transition-colors self-start sm:self-auto"
                 >
                   Delete
                 </button>

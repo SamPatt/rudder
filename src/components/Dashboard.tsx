@@ -382,19 +382,19 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Time Blocks Overview */}
       {(previousTimeBlock || currentTimeBlock || nextTimeBlock) && (
-        <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+        <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
           <h2 className="text-lg font-semibold text-slate-200 mb-4">Today's Schedule</h2>
           <div className="space-y-3">
             {/* Previous Time Block */}
             {previousTimeBlock && (
-              <div className="p-4 rounded-lg border border-slate-600 bg-slate-700/50 opacity-60">
+              <div className="p-3 sm:p-4 rounded-lg border border-slate-600 bg-slate-700/50 opacity-60">
                 <div className="flex justify-between items-start">
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <h3 className="text-sm font-medium text-gray-400">Previous</h3>
-                    <h4 className="text-lg font-medium text-slate-300">{previousTimeBlock.title}</h4>
+                    <h4 className="text-base sm:text-lg font-medium text-slate-300 truncate">{previousTimeBlock.title}</h4>
                     <p className="text-sm text-gray-500">
                       {previousTimeBlock.start_time} - {previousTimeBlock.end_time}
                     </p>
@@ -402,7 +402,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                       <p className="text-xs text-gray-400 mt-1">{getBlockStatusText(previousTimeBlock)}</p>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 ml-2 flex-shrink-0">
                     <button
                       onClick={() => handleCompletion(previousTimeBlock.id, 'completed')}
                       className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
@@ -432,11 +432,11 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
 
             {/* Current Time Block */}
             {currentTimeBlock && (
-              <div className="bg-green-900 border border-green-600 rounded-lg p-4">
+              <div className="bg-green-900 border border-green-600 rounded-lg p-3 sm:p-4">
                 <div className="flex justify-between items-start">
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <h3 className="text-sm font-medium text-green-300">Current</h3>
-                    <h4 className="text-xl font-medium text-green-200">{currentTimeBlock.title}</h4>
+                    <h4 className="text-lg sm:text-xl font-medium text-green-200 truncate">{currentTimeBlock.title}</h4>
                     <p className="text-sm text-green-300">
                       {currentTimeBlock.start_time} - {currentTimeBlock.end_time}
                     </p>
@@ -444,10 +444,10 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                       <p className="text-xs text-green-300 mt-1">{getBlockStatusText(currentTimeBlock)}</p>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 ml-2 flex-shrink-0">
                     <button
                       onClick={() => handleCompletion(currentTimeBlock.id, 'completed')}
-                      className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 flex items-center justify-center transition-colors ${
                         getCompletionStatus(currentTimeBlock.id)?.status === 'completed'
                           ? 'bg-green-600 border-green-600 text-white'
                           : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
@@ -458,7 +458,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                     </button>
                     <button
                       onClick={() => handleCompletion(currentTimeBlock.id, 'failed')}
-                      className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 flex items-center justify-center transition-colors ${
                         getCompletionStatus(currentTimeBlock.id)?.status === 'failed'
                           ? 'bg-red-600 border-red-600 text-white'
                           : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
@@ -474,11 +474,11 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
 
             {/* Next Time Block */}
             {nextTimeBlock && (
-              <div className={`p-4 rounded-lg border ${getBlockStatusColor(nextTimeBlock)}`}>
+              <div className={`p-3 sm:p-4 rounded-lg border ${getBlockStatusColor(nextTimeBlock)}`}>
                 <div className="flex justify-between items-start">
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <h3 className="text-sm font-medium text-gray-300">Next</h3>
-                    <h4 className="text-lg font-medium text-slate-200">{nextTimeBlock.title}</h4>
+                    <h4 className="text-base sm:text-lg font-medium text-slate-200 truncate">{nextTimeBlock.title}</h4>
                     <p className="text-sm text-gray-400">
                       {nextTimeBlock.start_time} - {nextTimeBlock.end_time}
                     </p>
@@ -486,7 +486,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                       <p className="text-xs text-gray-300 mt-1">{getBlockStatusText(nextTimeBlock)}</p>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 ml-2 flex-shrink-0">
                     <button
                       onClick={() => handleCompletion(nextTimeBlock.id, 'completed')}
                       className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
@@ -518,10 +518,10 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
       )}
 
       {/* Quick Add Task */}
-      <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+      <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
         <h2 className="text-lg font-semibold text-slate-200 mb-4">Quick Add Task</h2>
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <input
               type="text"
               value={newTaskTitle}
@@ -575,13 +575,13 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Select Days
                   </label>
-                  <div className="grid grid-cols-7 gap-2">
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
                     {DAYS_OF_WEEK.map(day => (
                       <button
                         key={day.value}
                         type="button"
                         onClick={() => handleDayToggle(day.value)}
-                        className={`p-2 rounded-md text-sm font-medium transition-colors ${
+                        className={`p-1 sm:p-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                           customDays.includes(day.value)
                             ? 'bg-forest-600 text-white'
                             : 'bg-slate-600 text-gray-300 hover:bg-slate-500'
@@ -607,7 +607,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
       </div>
 
       {/* Tasks List */}
-      <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+      <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
         <h2 className="text-lg font-semibold text-slate-200 mb-4">Today's Tasks</h2>
         
         {/* Daily Tasks Section */}
@@ -628,13 +628,13 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                     type="checkbox"
                     checked={task.is_done}
                     onChange={() => toggleTask(task.id, task.is_done)}
-                    className={`h-4 w-4 focus:ring-forest-500 border-slate-500 rounded ${
+                    className={`h-4 w-4 focus:ring-forest-500 border-slate-500 rounded flex-shrink-0 ${
                       task.is_done 
                         ? 'text-green-600 bg-green-600' 
                         : 'text-forest-600 bg-slate-600'
                     }`}
                   />
-                  <span className={`flex-1 ${
+                  <span className={`flex-1 min-w-0 ${
                     task.is_done 
                       ? 'line-through text-slate-400' 
                       : 'text-slate-200'
@@ -642,7 +642,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                     {task.title}
                   </span>
                   {getTaskGoalNames(task) && (
-                    <span className={`text-sm px-2 py-1 rounded ${
+                    <span className={`text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 ${
                       task.is_done 
                         ? 'text-slate-400 bg-slate-600' 
                         : 'text-slate-300 bg-slate-600'
@@ -674,13 +674,13 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                     type="checkbox"
                     checked={task.is_done}
                     onChange={() => toggleTask(task.id, task.is_done)}
-                    className={`h-4 w-4 focus:ring-forest-500 border-slate-500 rounded ${
+                    className={`h-4 w-4 focus:ring-forest-500 border-slate-500 rounded flex-shrink-0 ${
                       task.is_done 
                         ? 'text-green-600 bg-green-600' 
                         : 'text-forest-600 bg-slate-600'
                     }`}
                   />
-                  <span className={`flex-1 ${
+                  <span className={`flex-1 min-w-0 ${
                     task.is_done 
                       ? 'line-through text-slate-400' 
                       : 'text-slate-200'
@@ -688,7 +688,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                     {task.title}
                   </span>
                   {getTaskGoalNames(task) && (
-                    <span className={`text-sm px-2 py-1 rounded ${
+                    <span className={`text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 ${
                       task.is_done 
                         ? 'text-slate-400 bg-slate-600' 
                         : 'text-slate-300 bg-slate-600'

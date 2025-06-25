@@ -221,12 +221,12 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Add New Task */}
-      <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+      <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
         <h2 className="text-lg font-semibold text-slate-200 mb-4">Add New Task</h2>
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <input
               type="text"
               value={newTaskTitle}
@@ -280,13 +280,13 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Select Days
                   </label>
-                  <div className="grid grid-cols-7 gap-2">
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
                     {DAYS_OF_WEEK.map(day => (
                       <button
                         key={day.value}
                         type="button"
                         onClick={() => handleDayToggle(day.value)}
-                        className={`p-2 rounded-md text-sm font-medium transition-colors ${
+                        className={`p-1 sm:p-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                           customDays.includes(day.value)
                             ? 'bg-forest-600 text-white'
                             : 'bg-slate-600 text-gray-300 hover:bg-slate-500'
@@ -304,8 +304,8 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
       </div>
 
       {/* Filter Controls */}
-      <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 space-y-3 sm:space-y-0">
           <h2 className="text-lg font-semibold text-slate-200">Tasks</h2>
           <div className="flex space-x-2">
             <button
@@ -344,7 +344,7 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
         {filteredTasks.length === 0 ? (
           <p className="text-slate-400">No tasks found.</p>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             {/* Daily Tasks Section */}
             {getDailyTasks().length > 0 && (
               <div>
@@ -354,33 +354,37 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                 </h3>
                 <div className="space-y-2">
                   {getDailyTasks().map(task => (
-                    <div key={task.id} className="flex items-center space-x-3 p-4 border border-slate-600 rounded-lg bg-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={task.is_done}
-                        onChange={() => toggleTask(task.id, task.is_done)}
-                        className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600"
-                      />
-                      <span className={`flex-1 ${task.is_done ? 'line-through text-slate-500' : 'text-slate-200'}`}>
-                        {task.title}
-                      </span>
-                      <button
-                        onClick={() => handleEditGoal(task.id)}
-                        className="text-forest-400 hover:text-forest-300 text-sm px-2 py-1 border border-forest-600 rounded hover:bg-forest-900 transition-colors"
-                      >
-                        {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
-                      </button>
-                      {getTaskGoalNames(task) && (
-                        <span className="text-sm text-slate-300 bg-slate-600 px-2 py-1 rounded">
-                          {getTaskGoalNames(task)}
+                    <div key={task.id} className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-3 p-3 sm:p-4 border border-slate-600 rounded-lg bg-slate-700">
+                      <div className="flex items-center space-x-3 flex-1 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={task.is_done}
+                          onChange={() => toggleTask(task.id, task.is_done)}
+                          className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600 flex-shrink-0"
+                        />
+                        <span className={`flex-1 min-w-0 ${task.is_done ? 'line-through text-slate-500' : 'text-slate-200'}`}>
+                          {task.title}
                         </span>
-                      )}
-                      <button
-                        onClick={() => deleteTask(task.id)}
-                        className="text-red-400 hover:text-red-300 text-sm transition-colors"
-                      >
-                        Delete
-                      </button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => handleEditGoal(task.id)}
+                          className="text-forest-400 hover:text-forest-300 text-xs sm:text-sm px-2 py-1 border border-forest-600 rounded hover:bg-forest-900 transition-colors"
+                        >
+                          {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
+                        </button>
+                        {getTaskGoalNames(task) && (
+                          <span className="text-xs sm:text-sm text-slate-300 bg-slate-600 px-2 py-1 rounded">
+                            {getTaskGoalNames(task)}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => deleteTask(task.id)}
+                          className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -396,33 +400,37 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                 </h3>
                 <div className="space-y-2">
                   {getRegularTasks().map(task => (
-                    <div key={task.id} className="flex items-center space-x-3 p-4 border border-slate-600 rounded-lg bg-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={task.is_done}
-                        onChange={() => toggleTask(task.id, task.is_done)}
-                        className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600"
-                      />
-                      <span className={`flex-1 ${task.is_done ? 'line-through text-slate-500' : 'text-slate-200'}`}>
-                        {task.title}
-                      </span>
-                      <button
-                        onClick={() => handleEditGoal(task.id)}
-                        className="text-forest-400 hover:text-forest-300 text-sm px-2 py-1 border border-forest-600 rounded hover:bg-forest-900 transition-colors"
-                      >
-                        {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
-                      </button>
-                      {getTaskGoalNames(task) && (
-                        <span className="text-sm text-slate-300 bg-slate-600 px-2 py-1 rounded">
-                          {getTaskGoalNames(task)}
+                    <div key={task.id} className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-3 p-3 sm:p-4 border border-slate-600 rounded-lg bg-slate-700">
+                      <div className="flex items-center space-x-3 flex-1 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={task.is_done}
+                          onChange={() => toggleTask(task.id, task.is_done)}
+                          className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600 flex-shrink-0"
+                        />
+                        <span className={`flex-1 min-w-0 ${task.is_done ? 'line-through text-slate-500' : 'text-slate-200'}`}>
+                          {task.title}
                         </span>
-                      )}
-                      <button
-                        onClick={() => deleteTask(task.id)}
-                        className="text-red-400 hover:text-red-300 text-sm transition-colors"
-                      >
-                        Delete
-                      </button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => handleEditGoal(task.id)}
+                          className="text-forest-400 hover:text-forest-300 text-xs sm:text-sm px-2 py-1 border border-forest-600 rounded hover:bg-forest-900 transition-colors"
+                        >
+                          {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
+                        </button>
+                        {getTaskGoalNames(task) && (
+                          <span className="text-xs sm:text-sm text-slate-300 bg-slate-600 px-2 py-1 rounded">
+                            {getTaskGoalNames(task)}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => deleteTask(task.id)}
+                          className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard';
 import TaskList from './components/TaskList';
 import Schedule from './components/Schedule';
 import GoalManager from './components/GoalManager';
+import Navigation from './components/Navigation';
 
 function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -145,23 +146,9 @@ function App() {
   return (
     <Router>
       <div className="min-h-screen bg-slate-900 text-slate-200">
-        <nav className="bg-slate-800 shadow-lg border-b border-slate-700">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between h-16">
-              <div className="flex items-center">
-                <h1 className="text-xl font-semibold text-forest-400">Rudder</h1>
-              </div>
-              <div className="flex items-center space-x-4">
-                <a href="/" className="text-slate-300 hover:text-forest-400 transition-colors">Dashboard</a>
-                <a href="/tasks" className="text-slate-300 hover:text-forest-400 transition-colors">Tasks</a>
-                <a href="/schedule" className="text-slate-300 hover:text-forest-400 transition-colors">Schedule</a>
-                <a href="/goals" className="text-slate-300 hover:text-forest-400 transition-colors">Goals</a>
-              </div>
-            </div>
-          </div>
-        </nav>
+        <Navigation />
 
-        <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <main className="max-w-7xl mx-auto py-4 px-4 sm:py-6 sm:px-6 lg:px-8">
           <Routes>
             <Route path="/" element={
               <Dashboard 

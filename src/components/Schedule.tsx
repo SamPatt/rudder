@@ -430,9 +430,9 @@ export default function Schedule() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-white">Today's Schedule</h1>
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 sm:mb-6 space-y-3 sm:space-y-0">
+        <h1 className="text-2xl sm:text-3xl font-bold text-white">Today's Schedule</h1>
         <button
           onClick={() => setShowForm(!showForm)}
           className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors"
@@ -444,9 +444,9 @@ export default function Schedule() {
       {/* Add/Edit Form */}
       {showForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style={{ zIndex: 9999 }} onClick={handleCancel}>
-          <div className="bg-gray-800 p-6 rounded-lg w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-gray-800 p-4 sm:p-6 rounded-lg w-full max-w-md mx-2 sm:mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-white">
+              <h3 className="text-lg sm:text-xl font-semibold text-white">
                 {editingBlock ? 'Edit Time Block' : 'Add New Time Block'}
               </h3>
               <button
@@ -492,7 +492,7 @@ export default function Schedule() {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Start Time
@@ -541,13 +541,13 @@ export default function Schedule() {
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Select Days
                   </label>
-                  <div className="grid grid-cols-7 gap-2">
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
                     {DAYS_OF_WEEK.map(day => (
                       <button
                         key={day.value}
                         type="button"
                         onClick={() => handleDayToggle(day.value)}
-                        className={`p-2 rounded-md text-sm font-medium transition-colors ${
+                        className={`p-1 sm:p-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                           formData.custom_days.includes(day.value)
                             ? 'bg-green-600 text-white'
                             : 'bg-slate-700 text-gray-300 hover:bg-slate-600'
@@ -575,7 +575,7 @@ export default function Schedule() {
                 </div>
               )}
 
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="submit"
                   className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md transition-colors"
@@ -595,9 +595,9 @@ export default function Schedule() {
         </div>
       )}
 
-      <div className="bg-slate-800 rounded-lg p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-white">
+      <div className="bg-slate-800 rounded-lg p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 space-y-3 sm:space-y-0">
+          <h2 className="text-lg sm:text-xl font-semibold text-white">
             {currentDate.toLocaleDateString('en-US', { 
               weekday: 'long', 
               year: 'numeric', 
@@ -605,20 +605,20 @@ export default function Schedule() {
               day: 'numeric' 
             })}
           </h2>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => {
                 const prev = new Date(currentDate);
                 prev.setDate(prev.getDate() - 1);
                 setCurrentDate(prev);
               }}
-              className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded transition-colors"
+              className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded transition-colors text-sm"
             >
               Previous Day
             </button>
             <button
               onClick={() => setCurrentDate(new Date())}
-              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded transition-colors"
+              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded transition-colors text-sm"
             >
               Today
             </button>
@@ -628,7 +628,7 @@ export default function Schedule() {
                 next.setDate(next.getDate() + 1);
                 setCurrentDate(next);
               }}
-              className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded transition-colors"
+              className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded transition-colors text-sm"
             >
               Next Day
             </button>
@@ -655,7 +655,7 @@ export default function Schedule() {
               return (
                 <div 
                   key={timeBlock.id}
-                  className={`absolute left-16 right-4 p-3 rounded border transition-colors ${
+                  className={`absolute left-12 sm:left-16 right-2 sm:right-4 p-2 sm:p-3 rounded border transition-colors ${
                     isCurrentTime 
                       ? 'bg-green-900 border-green-600' 
                       : completion?.status === 'completed'
@@ -674,7 +674,7 @@ export default function Schedule() {
                 >
                   <div className="flex justify-between items-start h-full">
                     <div className="flex-1 min-w-0">
-                      <h4 className={`text-sm font-medium truncate ${
+                      <h4 className={`text-xs sm:text-sm font-medium truncate ${
                         isCurrentTime ? 'text-green-200' : 'text-gray-300'
                       }`}>
                         {timeBlock.title}
@@ -694,10 +694,10 @@ export default function Schedule() {
                         </p>
                       )}
                     </div>
-                    <div className="flex gap-1 ml-2">
+                    <div className="flex gap-1 ml-2 flex-shrink-0">
                       <button
                         onClick={() => handleCompletion(timeBlock.id, currentDate, 'completed')}
-                        className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                        className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border flex items-center justify-center transition-colors ${
                           completion?.status === 'completed'
                             ? 'bg-green-600 border-green-600 text-white'
                             : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
@@ -708,7 +708,7 @@ export default function Schedule() {
                       </button>
                       <button
                         onClick={() => handleCompletion(timeBlock.id, currentDate, 'failed')}
-                        className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                        className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border flex items-center justify-center transition-colors ${
                           completion?.status === 'failed'
                             ? 'bg-red-600 border-red-600 text-white'
                             : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
@@ -719,14 +719,14 @@ export default function Schedule() {
                       </button>
                       <button
                         onClick={() => handleEdit(timeBlock)}
-                        className="w-5 h-5 rounded-full border border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white flex items-center justify-center transition-colors"
+                        className="w-4 h-4 sm:w-5 sm:h-5 rounded-full border border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white flex items-center justify-center transition-colors"
                         title="Edit time block"
                       >
                         ✎
                       </button>
                       <button
                         onClick={() => handleDelete(timeBlock.id)}
-                        className="w-5 h-5 rounded-full border border-red-500 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors"
+                        className="w-4 h-4 sm:w-5 sm:h-5 rounded-full border border-red-500 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors"
                         title="Delete time block"
                       >
                         ×
@@ -753,7 +753,7 @@ export default function Schedule() {
                   style={{ height: '60px' }}
                 >
                   {/* Time label */}
-                  <div className="w-16 text-sm text-gray-400 font-mono flex-shrink-0">
+                  <div className="w-12 sm:w-16 text-xs sm:text-sm text-gray-400 font-mono flex-shrink-0">
                     {timeString}
                   </div>
                   
@@ -764,7 +764,7 @@ export default function Schedule() {
                        const [startHour] = timeBlock.start_time.split(':').map(Number);
                        return hour === startHour && isTimeBlockScheduledForDate(timeBlock, currentDate);
                      }).length === 0 && (
-                      <div className="text-gray-600 text-sm">
+                      <div className="text-gray-600 text-xs sm:text-sm">
                         Free time
                       </div>
                     )}
