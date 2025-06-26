@@ -252,7 +252,19 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
   const actuallyHandleCompletion = async (timeBlockId: string, status: 'completed' | 'skipped' | 'failed') => {
     const today = new Date().toISOString().split('T')[0];
     const existingCompletion = getCompletionStatus(timeBlockId);
-    if (existingCompletion) {
+    
+    // If clicking the same status that's already active, reset it (delete the completion)
+    if (existingCompletion && existingCompletion.status === status) {
+      const { error } = await supabase
+        .from('schedule_completions')
+        .delete()
+        .eq('id', existingCompletion.id);
+      if (error) {
+        console.error('Error deleting completion:', error);
+        return;
+      }
+    } else if (existingCompletion) {
+      // Update existing completion to new status
       const { error } = await supabase
         .from('schedule_completions')
         .update({ status })
@@ -262,6 +274,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
         return;
       }
     } else {
+      // Create new completion
       const { error } = await supabase
         .from('schedule_completions')
         .insert([{ time_block_id: timeBlockId, date: today, status }]);
@@ -270,6 +283,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
         return;
       }
     }
+    
     if (status === 'completed') {
       const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
       if (timeBlock) {
@@ -640,7 +654,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                         ? 'bg-green-600 border-green-600 text-white'
                         : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
                     }`}
-                    title="Mark as completed"
+                    title={getCompletionStatus(previousTimeBlock.id)?.status === 'completed' ? 'Click to unmark as completed' : 'Mark as completed'}
                   >
                     {getCompletionStatus(previousTimeBlock.id)?.status === 'completed' && '✓'}
                   </button>
@@ -651,7 +665,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                         ? 'bg-red-600 border-red-600 text-white'
                         : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
                     }`}
-                    title="Mark as failed"
+                    title={getCompletionStatus(previousTimeBlock.id)?.status === 'failed' ? 'Click to unmark as failed' : 'Mark as failed'}
                   >
                     {getCompletionStatus(previousTimeBlock.id)?.status === 'failed' && '✕'}
                   </button>
@@ -682,7 +696,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                         ? 'bg-green-600 border-green-600 text-white'
                         : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
                     }`}
-                    title="Mark as completed"
+                    title={getCompletionStatus(currentTimeBlock.id)?.status === 'completed' ? 'Click to unmark as completed' : 'Mark as completed'}
                   >
                     {getCompletionStatus(currentTimeBlock.id)?.status === 'completed' && '✓'}
                   </button>
@@ -693,7 +707,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                         ? 'bg-red-600 border-red-600 text-white'
                         : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
                     }`}
-                    title="Mark as failed"
+                    title={getCompletionStatus(currentTimeBlock.id)?.status === 'failed' ? 'Click to unmark as failed' : 'Mark as failed'}
                   >
                     {getCompletionStatus(currentTimeBlock.id)?.status === 'failed' && '✕'}
                   </button>
@@ -724,7 +738,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                         ? 'bg-green-600 border-green-600 text-white'
                         : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
                     }`}
-                    title="Mark as completed"
+                    title={getCompletionStatus(nextTimeBlock.id)?.status === 'completed' ? 'Click to unmark as completed' : 'Mark as completed'}
                   >
                     {getCompletionStatus(nextTimeBlock.id)?.status === 'completed' && '✓'}
                   </button>
@@ -735,7 +749,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                         ? 'bg-red-600 border-red-600 text-white'
                         : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
                     }`}
-                    title="Mark as failed"
+                    title={getCompletionStatus(nextTimeBlock.id)?.status === 'failed' ? 'Click to unmark as failed' : 'Mark as failed'}
                   >
                     {getCompletionStatus(nextTimeBlock.id)?.status === 'failed' && '✕'}
                   </button>

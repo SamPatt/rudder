@@ -434,8 +434,19 @@ export default function Schedule() {
     // Check if completion already exists
     const existingCompletion = getCompletionStatus(timeBlockId, date);
     
-    if (existingCompletion) {
-      // Update existing completion
+    // If clicking the same status that's already active, reset it (delete the completion)
+    if (existingCompletion && existingCompletion.status === status) {
+      const { error } = await supabase
+        .from('schedule_completions')
+        .delete()
+        .eq('id', existingCompletion.id);
+      
+      if (error) {
+        console.error('Error deleting completion:', error);
+        return;
+      }
+    } else if (existingCompletion) {
+      // Update existing completion to new status
       const { error } = await supabase
         .from('schedule_completions')
         .update({ status })
@@ -461,7 +472,7 @@ export default function Schedule() {
       }
     }
 
-    // Only mark/create today's task as done
+    // Only mark/create today's task as done when setting to completed
     const todayStr = date.toISOString().split('T')[0];
     const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
     if (status === 'completed' && timeBlock) {
@@ -924,7 +935,7 @@ export default function Schedule() {
                   key={timeBlock.id}
                   className={`col-start-2 z-10 p-2 sm:p-3 rounded border transition-colors flex flex-col justify-between overflow-visible absolute cursor-pointer
                     ${
-                      (completion?.status === 'completed' || timeBlock.task?.is_done)
+                      completion?.status === 'completed'
                         ? 'bg-green-900 border-green-600'
                         : isCurrentTime
                         ? 'border-orange-400 animate-gradient-slow'
@@ -967,7 +978,7 @@ export default function Schedule() {
                   <div className="flex-1 min-w-0 flex flex-col justify-center">
                     <h4 className={`text-xs sm:text-sm font-medium truncate
                       ${isCurrentTime ? 'text-orange-100' :
-                        (completion?.status === 'completed' || timeBlock.task?.is_done) ? 'text-green-200' :
+                        completion?.status === 'completed' ? 'text-green-200' :
                         isPastDue(timeBlock, completion, currentDate) ? 'text-gray-800' : 'text-gray-400'
                       }`}>
                       {timeBlock.task?.title || timeBlock.title} <span className={`text-xs ${isPastDue(timeBlock, completion, currentDate) ? 'text-gray-800' : 'text-gray-400'}`}>({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
@@ -1051,7 +1062,7 @@ export default function Schedule() {
                     ? 'bg-green-600 border-green-600 text-white'
                     : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
                 }`}
-                title="Mark as completed"
+                title={completion?.status === 'completed' ? 'Click to unmark as completed' : 'Mark as completed'}
               >
                 ✓
               </button>
@@ -1067,7 +1078,7 @@ export default function Schedule() {
                     ? 'bg-red-600 border-red-600 text-white'
                     : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
                 }`}
-                title="Mark as failed"
+                title={completion?.status === 'failed' ? 'Click to unmark as failed' : 'Mark as failed'}
               >
                 ✕
               </button>
