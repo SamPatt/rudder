@@ -57,7 +57,6 @@ export default function Schedule() {
   const lastStartTimeRef = useRef(formData.start_time);
   const [endTimeManuallyChanged, setEndTimeManuallyChanged] = useState(false);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
-  const [showDevModal, setShowDevModal] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number; width: number } | null>(null);
   const [activeMenuBlockId, setActiveMenuBlockId] = useState<string | null>(null);
 
@@ -67,11 +66,6 @@ export default function Schedule() {
     fetchGoals();
     fetchValues();
   }, []);
-
-  // Debug effect to track form state changes
-  useEffect(() => {
-    console.log('Form state changed - showForm:', showForm, 'editingBlock:', editingBlock);
-  }, [showForm, editingBlock]);
 
   const fetchTimeBlocks = async () => {
     const { data, error } = await supabase
@@ -257,10 +251,6 @@ export default function Schedule() {
   };
 
   const handleEdit = (timeBlock: TimeBlockWithLegacy) => {
-    console.log('Edit clicked for time block:', timeBlock);
-    console.log('Current showForm state:', showForm);
-    console.log('Current editingBlock state:', editingBlock);
-    
     // Calculate end time from old format if needed
     let calculatedEndTime = timeBlock.end_time;
     if (!calculatedEndTime && timeBlock.start_hour !== undefined && timeBlock.duration_m !== undefined) {
@@ -283,26 +273,35 @@ export default function Schedule() {
     });
     setSelectedGoalId(timeBlock.goal_id || null);
     setShowForm(true);
-    
-    console.log('After setting state - showForm should be true');
-    console.log('Form data set to:', {
-      title: timeBlock.title,
-      start_time: timeBlock.start_time || `${(timeBlock.start_hour || 9).toString().padStart(2, '0')}:00`,
-      end_time: calculatedEndTime || '10:00',
-      recur: timeBlock.recur || 'daily',
-    });
   };
 
   const handleDelete = async (timeBlockId: string) => {
     if (window.confirm('Are you sure you want to delete this time block?')) {
-      const { error } = await supabase
-        .from('time_blocks')
-        .delete()
-        .eq('id', timeBlockId);
+      // First, find the time block to get its title
+      const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
+      
+      if (timeBlock) {
+        // Delete the time block first to avoid foreign key constraint
+        const { error: timeBlockError } = await supabase
+          .from('time_blocks')
+          .delete()
+          .eq('id', timeBlockId);
 
-      if (error) {
-        console.error('Error deleting time block:', error);
-      } else {
+        if (timeBlockError) {
+          console.error('Error deleting time block:', timeBlockError);
+          return;
+        }
+        
+        // Now delete any associated tasks with the same title
+        const { error: taskDeleteError } = await supabase
+          .from('tasks')
+          .delete()
+          .eq('title', timeBlock.title);
+
+        if (taskDeleteError) {
+          console.error('Error deleting associated tasks:', taskDeleteError);
+        }
+        
         fetchTimeBlocks();
       }
     }
@@ -364,10 +363,6 @@ export default function Schedule() {
       createdDate.setHours(0, 0, 0, 0);
       
       if (checkDate < createdDate) {
-        console.log('Schedule isTimeBlockScheduledForDate: recurring event before creation date, returning false:', timeBlock.title, {
-          checkDate: checkDate.toISOString().split('T')[0],
-          createdDate: createdDate.toISOString().split('T')[0]
-        });
         return false;
       }
     }
@@ -377,23 +372,12 @@ export default function Schedule() {
       // Compare only the date part (YYYY-MM-DD) for both
       const eventDateStr = new Date(timeBlock.event_date).toISOString().split('T')[0];
       const currentDateStr = date.toISOString().split('T')[0];
-      const isScheduled = eventDateStr === currentDateStr;
-      console.log('Schedule isTimeBlockScheduledForDate (once):', timeBlock.title, {
-        eventDateStr,
-        currentDateStr,
-        isScheduled
-      });
-      return isScheduled;
+      return eventDateStr === currentDateStr;
     }
+    
     const dayOfWeek = date.getDay();
     const days = getDaysForTimeBlock(timeBlock);
-    const isScheduled = days.includes(dayOfWeek);
-    console.log('Schedule isTimeBlockScheduledForDate (recurring):', timeBlock.title, {
-      dayOfWeek,
-      days,
-      isScheduled
-    });
-    return isScheduled;
+    return days.includes(dayOfWeek);
   };
 
   const isTimeBlockCurrent = (timeBlock: TimeBlockWithLegacy, date: Date): boolean => {
@@ -594,37 +578,18 @@ export default function Schedule() {
       (endHour > 0 && endHour <= 6 && isTimeBlockScheduledForDate(tb, currentDate))
     );
   });
-  if (earlyEventBlocks.length > 0) {
-    console.log('Early event blocks for', currentDate.toISOString().split('T')[0], earlyEventBlocks.map(tb => ({
-      id: tb.id,
-      title: tb.title,
-      start_time: tb.start_time,
-      end_time: tb.end_time,
-      scheduledToday: isTimeBlockScheduledForDate(tb, currentDate)
-    })));
-  }
   const earlyEventExists = earlyEventBlocks.length > 0;
   const currentHour = new Date().getHours();
   const showEarly = earlyEventExists || currentHour < 6;
   const hourRange = showEarly ? Array.from({ length: 24 }, (_, h) => h) : Array.from({ length: 18 }, (_, h) => h + 6);
 
   function isPastDue(timeBlock, completion, currentDate) {
-    console.log('Schedule isPastDue check:', timeBlock.title, {
-      completion: completion?.status,
-      recur: timeBlock.recur,
-      start_time: timeBlock.start_time,
-      end_time: timeBlock.end_time,
-      isScheduledForToday: isTimeBlockScheduledForDate(timeBlock, currentDate)
-    });
-    
     if (completion) {
-      console.log('Schedule isPastDue: has completion, returning false');
       return false;
     }
     
     // Check if the time block is scheduled for today
     if (!isTimeBlockScheduledForDate(timeBlock, currentDate)) {
-      console.log('Schedule isPastDue: not scheduled for today, returning false');
       return false;
     }
     
@@ -635,7 +600,6 @@ export default function Schedule() {
     checkDate.setHours(0, 0, 0, 0);
     
     if (checkDate > today) {
-      console.log('Schedule isPastDue: future date, returning false');
       return false;
     }
     
@@ -646,7 +610,6 @@ export default function Schedule() {
       const today = new Date(currentDate);
       today.setHours(0,0,0,0);
       if (eventDate > today) {
-        console.log('Schedule isPastDue: one-time event date is in future, returning false');
         return false;
       }
     }
@@ -655,15 +618,8 @@ export default function Schedule() {
     const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
     const endTime = new Date();
     endTime.setHours(endHour, endMinute, 0, 0);
-    const isPastDue = now > endTime;
     
-    console.log('Schedule isPastDue result:', timeBlock.title, {
-      now: now.toLocaleTimeString(),
-      endTime: endTime.toLocaleTimeString(),
-      isPastDue: isPastDue
-    });
-    
-    return isPastDue;
+    return now > endTime;
   }
 
   return (
@@ -674,12 +630,6 @@ export default function Schedule() {
           className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-none sm:rounded-lg transition-colors w-full sm:w-auto"
         >
           {showForm ? 'Cancel' : 'Add Time Block'}
-        </button>
-        <button
-          onClick={() => setShowDevModal(true)}
-          className="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-none sm:rounded-lg transition-colors w-full sm:w-auto mt-2 sm:mt-0"
-        >
-          Dev Tools: Manage All Time Blocks
         </button>
       </div>
 
@@ -699,7 +649,6 @@ export default function Schedule() {
                 ×
               </button>
             </div>
-            {console.log('Rendering form with showForm:', showForm, 'editingBlock:', editingBlock)}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -1125,51 +1074,6 @@ export default function Schedule() {
         selectedGoalIds={selectedGoalId ? [selectedGoalId] : []}
         multiple={false}
       />
-
-      {showDevModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50" onClick={() => setShowDevModal(false)}>
-          <div className="bg-slate-900 p-6 rounded-lg w-full max-w-2xl mx-2 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-white">All Time Blocks (Dev Tools)</h3>
-              <button onClick={() => setShowDevModal(false)} className="text-gray-400 hover:text-white text-2xl font-bold">×</button>
-            </div>
-            <table className="w-full text-sm text-left text-gray-300">
-              <thead>
-                <tr>
-                  <th className="py-2 px-2">Title</th>
-                  <th className="py-2 px-2">Start</th>
-                  <th className="py-2 px-2">End</th>
-                  <th className="py-2 px-2">Recurrence</th>
-                  <th className="py-2 px-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {timeBlocks.map(tb => (
-                  <tr key={tb.id} className="border-b border-slate-700">
-                    <td className="py-2 px-2">{tb.title}</td>
-                    <td className="py-2 px-2">{tb.start_time}</td>
-                    <td className="py-2 px-2">{tb.end_time}</td>
-                    <td className="py-2 px-2">{tb.recur}</td>
-                    <td className="py-2 px-2">
-                      <button
-                        onClick={async () => {
-                          if (window.confirm('Delete this time block?')) {
-                            const { error } = await supabase.from('time_blocks').delete().eq('id', tb.id);
-                            if (!error) fetchTimeBlocks();
-                          }
-                        }}
-                        className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 } 

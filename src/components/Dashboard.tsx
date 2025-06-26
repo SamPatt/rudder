@@ -23,22 +23,20 @@ type ScheduleCompletion = {
 };
 
 export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }: DashboardProps) {
-  const [currentTimeBlock, setCurrentTimeBlock] = useState<TimeBlockRow | null>(null);
-  const [previousTimeBlock, setPreviousTimeBlock] = useState<TimeBlockRow | null>(null);
-  const [nextTimeBlock, setNextTimeBlock] = useState<TimeBlockRow | null>(null);
   const [completions, setCompletions] = useState<ScheduleCompletion[]>([]);
+  const [completionsLoading, setCompletionsLoading] = useState(true);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [selectedGoalId, setSelectedGoalId] = useState<string>('');
   const [showGoalSelector, setShowGoalSelector] = useState(false);
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurType, setRecurType] = useState<'daily' | 'weekdays' | 'weekly' | 'custom'>('daily');
   const [customDays, setCustomDays] = useState<number[]>([]);
+  const [previousTimeBlock, setPreviousTimeBlock] = useState<TimeBlockRow | null>(null);
+  const [currentTimeBlock, setCurrentTimeBlock] = useState<TimeBlockRow | null>(null);
+  const [nextTimeBlock, setNextTimeBlock] = useState<TimeBlockRow | null>(null);
   const [animatingOutId, setAnimatingOutId] = useState<string | null>(null);
-  const animationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [hiddenBlockIds, setHiddenBlockIds] = useState<string[]>([]);
-  const [completionsLoading, setCompletionsLoading] = useState(true);
-  const [tasksLoading, setTasksLoading] = useState(true);
-  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const animationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const taskTitleInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -53,13 +51,13 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
   // Refetch tasks when mounted or when a task is toggled
   useEffect(() => {
     const fetchTasks = async () => {
-      setTasksLoading(true);
+      setCompletionsLoading(true);
       const { data, error } = await supabase
         .from('tasks')
         .select(`*, task_goals (*, goal:goals (*, value:values (*)))`)
         .order('created_at', { ascending: false });
       if (!error && data) setTasks(data);
-      setTasksLoading(false);
+      setCompletionsLoading(false);
     };
     fetchTasks();
   }, []);
@@ -83,25 +81,10 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     const now = new Date();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
-    const todayStr = now.toISOString().split('T')[0];
-
-    console.log('updateCurrentTimeBlock - all time blocks:', timeBlocks.map(tb => ({
-      title: tb.title,
-      recur: tb.recur,
-      start_time: tb.start_time,
-      end_time: tb.end_time
-    })));
 
     // Use the isScheduledForToday function to filter blocks
     const todaysBlocks: TimeBlockRow[] = timeBlocks.filter(block => isScheduledForToday(block))
       .sort((a, b) => a.start_time.localeCompare(b.start_time));
-
-    console.log('updateCurrentTimeBlock - todays blocks:', todaysBlocks.map(tb => ({
-      title: tb.title,
-      recur: tb.recur,
-      start_time: tb.start_time,
-      end_time: tb.end_time
-    })));
 
     const currentMinutes = currentHour * 60 + currentMinute;
     let previousBlock: TimeBlockRow | null = null;
@@ -136,13 +119,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
       return blockStartMinutes > currentMinutes;
     }) || null;
 
-    console.log('updateCurrentTimeBlock - selected blocks:', {
-      previous: previousBlock?.title,
-      current: currentBlock?.title,
-      next: nextBlock?.title,
-      currentMinutes
-    });
-
     setPreviousTimeBlock(previousBlock);
     setCurrentTimeBlock(currentBlock);
     setNextTimeBlock(nextBlock);
@@ -170,53 +146,40 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
   // Helper function to check if a time block is scheduled for today
   const isScheduledForToday = (timeBlock: TimeBlockRow): boolean => {
     const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
     const dayOfWeek = today.getDay();
     
-    // Debug logging
-    console.log('Checking if scheduled for today:', timeBlock.title, {
-      recur: timeBlock.recur,
-      dayOfWeek,
-      custom_days: timeBlock.custom_days,
-      event_date: timeBlock.event_date
-    });
+    // Don't show recurring events for dates before they were created
+    if (timeBlock.recur !== 'once' && timeBlock.created_at) {
+      const createdDate = new Date(timeBlock.created_at);
+      createdDate.setHours(0, 0, 0, 0);
+      
+      if (today < createdDate) {
+        return false;
+      }
+    }
     
     // Handle one-time events
     if (timeBlock.recur === 'once' && timeBlock.event_date) {
-      const eventDate = new Date(timeBlock.event_date);
-      const todayStr = today.toISOString().split('T')[0];
-      const eventDateStr = eventDate.toISOString().split('T')[0];
-      const isScheduled = todayStr === eventDateStr;
-      console.log('One-time event check:', timeBlock.title, { todayStr, eventDateStr, isScheduled });
-      return isScheduled;
+      const eventDateStr = new Date(timeBlock.event_date).toISOString().split('T')[0];
+      return eventDateStr === todayStr;
     }
     
     // For recurring events, check if today's day of week is in the scheduled days
     const days = getDaysForTimeBlock(timeBlock);
-    const isScheduled = days.includes(dayOfWeek);
-    console.log('Recurring event check:', timeBlock.title, { days, dayOfWeek, isScheduled });
-    return isScheduled;
+    return days.includes(dayOfWeek);
   };
 
   function isPastDueIncomplete(block: TimeBlockRow | null): boolean {
     if (!block) return false;
     
-    // Debug logging
-    console.log('Checking if past due:', block.title, {
-      recur: block.recur,
-      start_time: block.start_time,
-      end_time: block.end_time,
-      isScheduledForToday: isScheduledForToday(block)
-    });
-    
     // Check if the block is scheduled for today
     if (!isScheduledForToday(block)) {
-      console.log('Block not scheduled for today:', block.title);
       return false;
     }
     
     const completion = getCompletionStatus(block.id);
     if (completion && ['completed', 'failed', 'skipped'].includes(completion.status)) {
-      console.log('Block has completion status:', block.title, completion.status);
       return false;
     }
     
@@ -224,15 +187,8 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     const [endHour, endMinute] = block.end_time.split(':').map(Number);
     const endTime = new Date();
     endTime.setHours(endHour, endMinute, 0, 0);
-    const isPastDue = now > endTime;
     
-    console.log('Past due check result:', block.title, {
-      now: now.toLocaleTimeString(),
-      endTime: endTime.toLocaleTimeString(),
-      isPastDue
-    });
-    
-    return isPastDue;
+    return now > endTime;
   }
 
   const handleCompletion = async (timeBlockId: string, status: 'completed' | 'skipped' | 'failed') => {
@@ -513,14 +469,8 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
   };
 
   const getTaskGoalNames = (task: Task) => {
-    if (!task.task_goals || task.task_goals.length === 0) return null;
-    return task.task_goals.map(tg => {
-      const goal = tg.goal;
-      if (!goal) return null;
-      const value = goal.value;
-      const valueIcon = value ? getValueIcon(value.name) : '🎯';
-      return `${valueIcon} ${goal.name}`;
-    }).filter(Boolean).join(', ');
+    const taskGoals = task.task_goals || [];
+    return taskGoals.map(tg => tg.goal?.name).filter(Boolean).join(', ') || 'No goals';
   };
 
   // Helper functions to organize tasks
@@ -528,20 +478,9 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     const today = new Date();
     const dayOfWeek = today.getDay();
     
-    console.log('=== DEBUG: getDailyTasks ===');
-    console.log('Today:', today.toDateString(), 'Day of week:', dayOfWeek);
-    
-    const filteredTasks = tasks.filter(task => {
-      console.log(`Task: "${task.title}"`, {
-        is_recurring: task.is_recurring,
-        is_done: task.is_done,
-        recur_type: task.recur_type,
-        custom_days: task.custom_days
-      });
-      
-      // Only show recurring tasks that are not done
+    return tasks.filter(task => {
+      // Only include recurring tasks that are not done
       if (!task.is_recurring || task.is_done) {
-        console.log(`  -> Excluded: ${!task.is_recurring ? 'not recurring' : 'is done'}`);
         return false;
       }
       
@@ -549,27 +488,16 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
       let isScheduledToday = false;
       if (task.recur_type === 'daily') {
         isScheduledToday = true;
-        console.log(`  -> Daily task: scheduled for today`);
       } else if (task.recur_type === 'weekdays' && dayOfWeek >= 1 && dayOfWeek <= 5) {
         isScheduledToday = true;
-        console.log(`  -> Weekday task: scheduled for today (${dayOfWeek})`);
       } else if (task.recur_type === 'weekly' && task.custom_days && task.custom_days.includes(dayOfWeek)) {
         isScheduledToday = true;
-        console.log(`  -> Weekly task: scheduled for today (${dayOfWeek} in ${task.custom_days})`);
       } else if (task.recur_type === 'custom' && task.custom_days && task.custom_days.includes(dayOfWeek)) {
         isScheduledToday = true;
-        console.log(`  -> Custom task: scheduled for today (${dayOfWeek} in ${task.custom_days})`);
-      } else {
-        console.log(`  -> Not scheduled for today`);
       }
       
       return isScheduledToday;
     });
-    
-    console.log('Final filtered tasks:', filteredTasks.map(t => t.title));
-    console.log('=== END DEBUG ===');
-    
-    return filteredTasks;
   };
 
   const getTodaysTasks = () => {
@@ -646,15 +574,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
   // Update the past due checking to use all past due blocks
   useEffect(() => {
     const pastDueBlocks = getPastDueBlocks();
-    console.log('Past due blocks found:', pastDueBlocks.map(b => b.title));
-    
-    // Check if any of the past due blocks should be shown
-    pastDueBlocks.forEach(block => {
-      console.log('Checking past due block:', block.title, {
-        end_time: block.end_time,
-        isPastDue: isPastDueIncomplete(block)
-      });
-    });
+    // This effect is used to trigger re-renders when past due status changes
   }, [timeBlocks, completions]);
 
   return (
@@ -875,13 +795,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                   )}
                 </div>
               )}
-              {selectedGoalId && (
-                <div className="p-2 bg-forest-900 border border-forest-600 rounded-md">
-                  <p className="text-sm text-forest-200">
-                    <span className="font-medium">Selected goal:</span> {getSelectedGoalNames()}
-                  </p>
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -923,7 +836,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                       {task.title}
                     </span>
                   </div>
-                  {getTaskGoalNames(task) && (
+                  {getTaskGoalNames(task) && getTaskGoalNames(task) !== 'No goals' && (
                     <div className="mt-2 flex flex-wrap gap-1">
                       {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
                         <span
@@ -974,7 +887,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                       {task.title}
                     </span>
                   </div>
-                  {getTaskGoalNames(task) && (
+                  {getTaskGoalNames(task) && getTaskGoalNames(task) !== 'No goals' && (
                     <div className="mt-2 flex flex-wrap gap-1">
                       {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
                         <span

@@ -22,8 +22,6 @@ function App() {
 
   const fetchInitialData = async () => {
     try {
-      console.log('Starting to fetch initial data...');
-      
       const [tasksResult, goalsResult, valuesResult, timeBlocksResult] = await Promise.all([
         supabase.from('tasks').select(`
           *,
@@ -40,22 +38,10 @@ function App() {
         supabase.from('time_blocks').select('*, goal:goals(*)').order('start_time', { ascending: true })
       ]);
 
-      console.log('Time blocks query result:', {
-        data: timeBlocksResult.data,
-        error: timeBlocksResult.error,
-        count: timeBlocksResult.data?.length
-      });
-
       if (tasksResult.data) setTasks(tasksResult.data);
       if (goalsResult.data) setGoals(goalsResult.data);
       if (valuesResult.data) setValues(valuesResult.data);
       if (timeBlocksResult.data) {
-        console.log('Loaded time blocks:', timeBlocksResult.data.map(tb => ({
-          title: tb.title,
-          recur: tb.recur,
-          start_time: tb.start_time,
-          end_time: tb.end_time
-        })));
         setTimeBlocks(timeBlocksResult.data);
       }
       

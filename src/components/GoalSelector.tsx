@@ -69,9 +69,9 @@ export default function GoalSelector({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-2 sm:p-4">
-      <div className="bg-slate-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] sm:max-h-[80vh] overflow-hidden border border-slate-700">
+      <div className="bg-slate-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] sm:max-h-[80vh] flex flex-col border border-slate-700">
         {/* Header */}
-        <div className="p-4 sm:p-6 border-b border-slate-700">
+        <div className="p-4 sm:p-6 border-b border-slate-700 flex-shrink-0">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg sm:text-xl font-semibold text-slate-200">
               {multiple ? 'Select Goals' : 'Select a Goal'}
@@ -101,7 +101,7 @@ export default function GoalSelector({
         </div>
 
         {/* Content */}
-        <div className="overflow-y-auto max-h-[60vh] p-4 sm:p-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
           {filteredGoalsByValue.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-slate-400">No goals found matching "{searchTerm}"</p>
@@ -163,7 +163,7 @@ export default function GoalSelector({
         </div>
 
         {/* Footer */}
-        <div className="p-4 sm:p-6 border-t border-slate-700 bg-slate-800">
+        <div className="p-4 sm:p-6 border-t border-slate-700 bg-slate-800 flex-shrink-0">
           <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
             <button
               onClick={handleNoGoalClick}

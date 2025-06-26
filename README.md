@@ -18,11 +18,11 @@ A goal-oriented task and scheduling app that helps you stay focused on what matt
 - **Backend**: Supabase (PostgreSQL + Real-time subscriptions)
 - **Deployment**: Netlify (recommended)
 
-## Setup
+## Quick Start
 
 ### 1. Prerequisites
 
-- Node.js 16+ (you may need to upgrade from v12)
+- Node.js 18+
 - npm or yarn
 - Supabase account
 
@@ -44,47 +44,13 @@ VITE_SUPABASE_ANON=your-anon-key-here
 ### 4. Supabase Setup
 
 1. Create a new Supabase project
-2. Run the following SQL in the SQL editor:
-
-```sql
--- 1. Values  
-create table values (
-  id        uuid         primary key default uuid_generate_v4(),
-  name      text         not null,
-  created_at timestamptz default now()
-);
-
--- 2. Goals  
-create table goals (
-  id         uuid         primary key default uuid_generate_v4(),
-  value_id   uuid         references values(id) on delete cascade,
-  name       text         not null,
-  target_by  date,
-  created_at timestamptz  default now()
-);
-
--- 3. Tasks  
-create table tasks (
-  id         uuid         primary key default uuid_generate_v4(),
-  goal_id    uuid         references goals(id) on delete cascade,
-  title      text         not null,
-  due_at     timestamptz,
-  is_done    boolean      default false,
-  created_at timestamptz  default now()
-);
-
--- 4. Time_blocks  
-create table time_blocks (
-  id         uuid         primary key default uuid_generate_v4(),
-  goal_id    uuid         references goals(id),
-  title      text         not null,
-  start_hour int          not null,  -- 0–23
-  duration_m int          not null,  -- minutes
-  recur      text         not null,  -- e.g. 'daily', 'weekdays'
-  created_at timestamptz  default now()
-);
-```
-
+2. Run the SQL scripts in the `scripts/` directory in order:
+   - `update-schema.sql` - Creates task_goals junction table
+   - `add-recurring-tasks.sql` - Adds recurring task support
+   - `add-task-date.sql` - Adds date column for tasks
+   - `add-event-date.sql` - Adds event_date for time blocks
+   - `update-schedule-schema.sql` - Creates schedule_completions table
+   - `update-time-blocks-schema.sql` - Updates time_blocks schema
 3. Enable Realtime for all tables in the Supabase dashboard
 4. Copy your project URL and anon key to the `.env` file
 
@@ -94,12 +60,12 @@ create table time_blocks (
 npm run dev
 ```
 
-The app will be available at `http://localhost:3000`
+The app will be available at `http://localhost:5173`
 
-### 6. Build for Production
+### 6. Test Production Build
 
 ```bash
-npm run build
+./scripts/build-test.sh
 ```
 
 ## Usage
@@ -123,11 +89,15 @@ npm run build
 
 ### Netlify (Recommended)
 
-1. Connect your GitHub repository to Netlify
-2. Set build command: `npm run build`
-3. Set publish directory: `dist`
-4. Add environment variables in Netlify dashboard
-5. Deploy!
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
+
+Quick steps:
+1. Push your code to GitHub
+2. Connect to Netlify
+3. Set build command: `npm run build`
+4. Set publish directory: `dist`
+5. Add environment variables
+6. Deploy!
 
 ### Other Platforms
 
