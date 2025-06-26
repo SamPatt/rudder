@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { Database } from '../types/database';
 import GoalSelector from './GoalSelector';
@@ -57,6 +58,8 @@ export default function Schedule() {
   const [endTimeManuallyChanged, setEndTimeManuallyChanged] = useState(false);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [showDevModal, setShowDevModal] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number; width: number } | null>(null);
+  const [activeMenuBlockId, setActiveMenuBlockId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTimeBlocks();
@@ -351,19 +354,22 @@ export default function Schedule() {
   };
 
   const isTimeBlockScheduledForDate = (timeBlock: TimeBlockWithLegacy, date: Date): boolean => {
-    // Don't show recurring events for past dates
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Don't show recurring events for dates before they were created
     const checkDate = new Date(date);
     checkDate.setHours(0, 0, 0, 0);
     
-    // For recurring events, only show if the date is today or in the future
-    if (timeBlock.recur !== 'once' && checkDate < today) {
-      console.log('Schedule isTimeBlockScheduledForDate: recurring event in past, returning false:', timeBlock.title, {
-        checkDate: checkDate.toISOString().split('T')[0],
-        today: today.toISOString().split('T')[0]
-      });
-      return false;
+    // For recurring events, only show if the date is on or after the creation date
+    if (timeBlock.recur !== 'once' && timeBlock.created_at) {
+      const createdDate = new Date(timeBlock.created_at);
+      createdDate.setHours(0, 0, 0, 0);
+      
+      if (checkDate < createdDate) {
+        console.log('Schedule isTimeBlockScheduledForDate: recurring event before creation date, returning false:', timeBlock.title, {
+          checkDate: checkDate.toISOString().split('T')[0],
+          createdDate: createdDate.toISOString().split('T')[0]
+        });
+        return false;
+      }
     }
     
     // Handle one-time events
@@ -940,7 +946,21 @@ export default function Schedule() {
                   }}
                   onClick={e => {
                     e.stopPropagation();
-                    setActiveBlockId(isActive ? null : timeBlock.id);
+                    if (isActive) {
+                      setActiveBlockId(null);
+                      setMenuPosition(null);
+                      setActiveMenuBlockId(null);
+                    } else {
+                      setActiveBlockId(timeBlock.id);
+                      // Calculate position for the floating menu
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setMenuPosition({
+                        x: rect.left,
+                        y: rect.bottom + 4,
+                        width: rect.width
+                      });
+                      setActiveMenuBlockId(timeBlock.id);
+                    }
                   }}
                 >
                   {/* Show details/buttons only if active or on desktop */}
@@ -956,70 +976,130 @@ export default function Schedule() {
                       <p className="text-xs mt-1 text-gray-800">Past due</p>
                     )}
                   </div>
-                  {/* Action buttons: show if active or on desktop */}
-                  {(isActive || window.innerWidth >= 640) && (
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <button
-                        onClick={e => { e.stopPropagation(); handleCompletion(timeBlock.id, currentDate, 'completed'); }}
-                        className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
-                          completion?.status === 'completed'
-                            ? 'bg-green-600 border-green-600 text-white'
-                            : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
-                        }`}
-                        title="Mark as completed"
-                      >
-                        ✓
-                      </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); handleCompletion(timeBlock.id, currentDate, 'failed'); }}
-                        className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
-                          completion?.status === 'failed'
-                            ? 'bg-red-600 border-red-600 text-white'
-                            : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
-                        }`}
-                        title="Mark as failed"
-                      >
-                        ✕
-                      </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); handleEdit(timeBlock); }}
-                        className="w-5 h-5 rounded-full border border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white flex items-center justify-center transition-colors"
-                        title="Edit time block"
-                      >
-                        ✎
-                      </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); handleDelete(timeBlock.id); }}
-                        className="w-5 h-5 rounded-full border border-red-500 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors"
-                        title="Delete time block"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  )}
                 </div>
               );
             });
           })()}
+          
           {/* Clickable overlay for adding a block to a specific hour */}
-          {hourRange.map(hour => (
-            <div
-              key={`click-${hour}`}
-              className="col-start-2 z-0"
-              style={{ gridRow: hour - (showEarly ? 0 : 6) + 1, height: '60px', position: 'relative', cursor: 'pointer' }}
-              onClick={() => {
-                setFormData(prev => ({
-                  ...prev,
-                  start_time: `${hour.toString().padStart(2, '0')}:00`,
-                  end_time: `${((hour + 1) % 24).toString().padStart(2, '0')}:00`,
-                }));
-                setEditingBlock(null);
-                setShowForm(true);
-              }}
-            />
-          ))}
+          {hourRange.map(hour => {
+            // Check if there are any time blocks in this hour
+            const hasTimeBlocksInHour = timeBlocks
+              .filter(timeBlock => isTimeBlockScheduledForDate(timeBlock, currentDate))
+              .some(timeBlock => {
+                const [startHour] = timeBlock.start_time.split(':').map(Number);
+                const [endHour] = timeBlock.end_time.split(':').map(Number);
+                return (startHour <= hour && endHour > hour) || 
+                       (startHour === hour) || 
+                       (endHour > hour && startHour < hour);
+              });
+
+            return (
+              <div
+                key={`click-${hour}`}
+                className={`col-start-2 absolute ${hasTimeBlocksInHour ? 'z-5' : 'z-15'}`}
+                style={{ 
+                  top: `${(hour - (showEarly ? 0 : 6)) * 60}px`,
+                  height: '60px',
+                  left: '0',
+                  right: '0',
+                  cursor: 'pointer'
+                }}
+                onClick={() => {
+                  if (!hasTimeBlocksInHour) {
+                    setFormData(prev => ({
+                      ...prev,
+                      start_time: `${hour.toString().padStart(2, '0')}:00`,
+                      end_time: `${((hour + 1) % 24).toString().padStart(2, '0')}:00`,
+                    }));
+                    setEditingBlock(null);
+                    setShowForm(true);
+                  }
+                }}
+              />
+            );
+          })}
         </div>
       </div>
+
+      {/* Floating Action Menu Portal */}
+      {menuPosition && activeMenuBlockId && (() => {
+        const timeBlock = timeBlocks.find(tb => tb.id === activeMenuBlockId);
+        const completion = timeBlock ? getCompletionStatus(timeBlock.id, currentDate) : null;
+        
+        return createPortal(
+          <div
+            className="fixed bg-slate-800 border border-slate-600 rounded-md shadow-2xl p-2 z-[9999]"
+            style={{
+              left: menuPosition.x,
+              top: menuPosition.y,
+              width: menuPosition.width,
+              minWidth: '120px'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-wrap gap-2 justify-center">
+              <button
+                onClick={() => {
+                  if (timeBlock) handleCompletion(timeBlock.id, currentDate, 'completed');
+                  setMenuPosition(null);
+                  setActiveMenuBlockId(null);
+                  setActiveBlockId(null);
+                }}
+                className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ${
+                  completion?.status === 'completed'
+                    ? 'bg-green-600 border-green-600 text-white'
+                    : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
+                }`}
+                title="Mark as completed"
+              >
+                ✓
+              </button>
+              <button
+                onClick={() => {
+                  if (timeBlock) handleCompletion(timeBlock.id, currentDate, 'failed');
+                  setMenuPosition(null);
+                  setActiveMenuBlockId(null);
+                  setActiveBlockId(null);
+                }}
+                className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ${
+                  completion?.status === 'failed'
+                    ? 'bg-red-600 border-red-600 text-white'
+                    : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
+                }`}
+                title="Mark as failed"
+              >
+                ✕
+              </button>
+              <button
+                onClick={() => {
+                  if (timeBlock) handleEdit(timeBlock);
+                  setMenuPosition(null);
+                  setActiveMenuBlockId(null);
+                  setActiveBlockId(null);
+                }}
+                className="w-6 h-6 rounded-full border border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white flex items-center justify-center transition-colors"
+                title="Edit time block"
+              >
+                ✎
+              </button>
+              <button
+                onClick={() => {
+                  if (timeBlock) handleDelete(timeBlock.id);
+                  setMenuPosition(null);
+                  setActiveMenuBlockId(null);
+                  setActiveBlockId(null);
+                }}
+                className="w-6 h-6 rounded-full border border-red-500 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors"
+                title="Delete time block"
+              >
+                🗑️
+              </button>
+            </div>
+          </div>,
+          document.body
+        );
+      })()}
 
       {/* Goal Selector Modal - Moved outside form modal */}
       <GoalSelector
