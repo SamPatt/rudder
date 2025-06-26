@@ -511,7 +511,21 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
 
   // Helper functions to organize tasks
   const getDailyTasks = () => {
-    return tasks.filter(task => task.is_recurring && !task.is_done);
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    
+    return tasks.filter(task => {
+      // Only show recurring tasks that are not done
+      if (!task.is_recurring || task.is_done) return false;
+      
+      // Check if the task is scheduled for today based on its recurrence pattern
+      if (task.recur_type === 'daily') return true;
+      if (task.recur_type === 'weekdays' && dayOfWeek >= 1 && dayOfWeek <= 5) return true;
+      if (task.recur_type === 'weekly' && task.custom_days && task.custom_days.includes(dayOfWeek)) return true;
+      if (task.recur_type === 'custom' && task.custom_days && task.custom_days.includes(dayOfWeek)) return true;
+      
+      return false;
+    });
   };
 
   const getTodaysTasks = () => {
@@ -772,7 +786,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                     onChange={(e) => setIsRecurring(e.target.checked)}
                     className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600"
                   />
-                  <span className="text-slate-300 text-sm">Make this a daily task</span>
+                  <span className="text-slate-300 text-sm">Make frequent</span>
                 </label>
               </div>
               {isRecurring && (
@@ -831,14 +845,13 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
 
       {/* Tasks List */}
       <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
-        <h2 className="text-lg font-semibold text-slate-200 mb-4">Today's Tasks</h2>
         
-        {/* Daily Tasks Section */}
+        {/* Frequent Tasks Section */}
         {getDailyTasks().length > 0 && (
           <div className="mb-6">
             <h3 className="text-md font-medium text-forest-300 mb-3 flex items-center">
               <span className="mr-2">🔄</span>
-              Daily Tasks
+              Frequent
             </h3>
             <div className="space-y-2">
               {getDailyTasks().map(task => (
@@ -884,12 +897,12 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
           </div>
         )}
         
-        {/* Today's Tasks Section */}
+        {/* To-do list Section */}
         {getTodaysTasks().length > 0 && (
           <div className="mb-6">
             <h3 className="text-md font-medium text-slate-300 mb-3 flex items-center">
               <span className="mr-2">📝</span>
-              Today's Tasks
+              To-do list
             </h3>
             <div className="space-y-2">
               {getTodaysTasks().map(task => (

@@ -330,7 +330,7 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                 onChange={(e) => setIsRecurring(e.target.checked)}
                 className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600"
               />
-              <span className="text-slate-300 text-sm">Make this a recurring task</span>
+              <span className="text-slate-300 text-sm">Make frequent</span>
             </label>
           </div>
           
@@ -422,12 +422,12 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
           <p className="text-slate-400">No tasks found.</p>
         ) : (
           <div className="space-y-4 sm:space-y-6">
-            {/* Daily Tasks Section */}
+            {/* Frequent Tasks Section */}
             {getDailyTasks().length > 0 && (
               <div>
                 <h3 className="text-md font-medium text-forest-300 mb-3 flex items-center">
                   <span className="mr-2">🔄</span>
-                  Daily Tasks
+                  Frequent
                 </h3>
                 <div className="space-y-2">
                   {getDailyTasks().map(task => (
@@ -493,12 +493,12 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
               </div>
             )}
             
-            {/* Regular Tasks Section */}
+            {/* To-do list Section */}
             {getRegularTasks().length > 0 && (
               <div>
                 <h3 className="text-md font-medium text-slate-300 mb-3 flex items-center">
                   <span className="mr-2">📝</span>
-                  Regular Tasks
+                  To-do list
                 </h3>
                 <div className="space-y-2">
                   {getRegularTasks().map(task => (
