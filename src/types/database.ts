@@ -29,17 +29,19 @@ export interface Task {
   is_recurring?: boolean;
   recur_type?: 'daily' | 'weekdays' | 'weekly' | 'custom' | null;
   custom_days?: number[] | null;
+  date: string;
   created_at: string;
   task_goals?: TaskGoal[];
 }
 
 export interface TimeBlock {
   id: string;
-  goal_id?: string;
   title: string;
-  start_hour: number;
-  duration_m: number;
-  recur: 'daily' | 'weekdays' | 'weekly';
+  start_time: string;
+  end_time: string;
+  recur: string;
+  custom_days: number[] | null;
+  event_date: string | null;
   created_at: string;
   goal?: Goal;
 }
@@ -98,6 +100,7 @@ export interface Database {
           is_recurring: boolean;
           recur_type: string | null;
           custom_days: number[] | null;
+          date: string;
           created_at: string;
         };
         Insert: {
@@ -108,6 +111,7 @@ export interface Database {
           is_recurring?: boolean;
           recur_type?: string | null;
           custom_days?: number[] | null;
+          date?: string;
           created_at?: string;
         };
         Update: {
@@ -118,6 +122,7 @@ export interface Database {
           is_recurring?: boolean;
           recur_type?: string | null;
           custom_days?: number[] | null;
+          date?: string;
           created_at?: string;
         };
         Relationships: [];

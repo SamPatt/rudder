@@ -204,9 +204,23 @@ export default function Schedule() {
       }
     } else {
       // Create new task first
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Determine if this is a recurring task and set appropriate fields
+      const isRecurring = formData.recur !== 'once';
+      const recurType = isRecurring ? formData.recur : null;
+      const customDays = isRecurring && formData.recur === 'custom' ? formData.custom_days : null;
+      
       const { data: taskData, error: taskError } = await supabase
         .from('tasks')
-        .insert([{ title: formData.title, is_done: false }])
+        .insert([{ 
+          title: formData.title, 
+          is_done: false,
+          is_recurring: isRecurring,
+          recur_type: recurType,
+          custom_days: customDays,
+          date: today
+        }])
         .select('id')
         .single();
 
@@ -337,16 +351,43 @@ export default function Schedule() {
   };
 
   const isTimeBlockScheduledForDate = (timeBlock: TimeBlockWithLegacy, date: Date): boolean => {
+    // Don't show recurring events for past dates
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const checkDate = new Date(date);
+    checkDate.setHours(0, 0, 0, 0);
+    
+    // For recurring events, only show if the date is today or in the future
+    if (timeBlock.recur !== 'once' && checkDate < today) {
+      console.log('Schedule isTimeBlockScheduledForDate: recurring event in past, returning false:', timeBlock.title, {
+        checkDate: checkDate.toISOString().split('T')[0],
+        today: today.toISOString().split('T')[0]
+      });
+      return false;
+    }
+    
     // Handle one-time events
     if (timeBlock.recur === 'once' && timeBlock.event_date) {
       // Compare only the date part (YYYY-MM-DD) for both
       const eventDateStr = new Date(timeBlock.event_date).toISOString().split('T')[0];
       const currentDateStr = date.toISOString().split('T')[0];
-      return eventDateStr === currentDateStr;
+      const isScheduled = eventDateStr === currentDateStr;
+      console.log('Schedule isTimeBlockScheduledForDate (once):', timeBlock.title, {
+        eventDateStr,
+        currentDateStr,
+        isScheduled
+      });
+      return isScheduled;
     }
     const dayOfWeek = date.getDay();
     const days = getDaysForTimeBlock(timeBlock);
-    return days.includes(dayOfWeek);
+    const isScheduled = days.includes(dayOfWeek);
+    console.log('Schedule isTimeBlockScheduledForDate (recurring):', timeBlock.title, {
+      dayOfWeek,
+      days,
+      isScheduled
+    });
+    return isScheduled;
   };
 
   const isTimeBlockCurrent = (timeBlock: TimeBlockWithLegacy, date: Date): boolean => {
@@ -414,17 +455,29 @@ export default function Schedule() {
       }
     }
 
-    // If completed, also mark the associated task as done
-    if (status === 'completed') {
-      const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
-      if (timeBlock && timeBlock.task_id) {
-        const { error: taskError } = await supabase
-          .from('tasks')
-          .update({ is_done: true })
-          .eq('id', timeBlock.task_id);
-        if (taskError) {
-          console.error('Error updating task as done:', taskError);
-        }
+    // Only mark/create today's task as done
+    const todayStr = date.toISOString().split('T')[0];
+    const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
+    if (status === 'completed' && timeBlock) {
+      // Check if a task for this time block and date already exists
+      const { data: existingTasks, error: taskFetchError } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('title', timeBlock.title)
+        .eq('date', todayStr);
+      if (!taskFetchError && existingTasks && existingTasks.length > 0) {
+        // Mark as done
+        const taskId = existingTasks[0].id;
+        await supabase.from('tasks').update({ is_done: true }).eq('id', taskId);
+      } else {
+        // Create a new task for today
+        await supabase.from('tasks').insert([
+          {
+            title: timeBlock.title,
+            is_done: true,
+            date: todayStr,
+          },
+        ]);
       }
     }
 
@@ -535,13 +588,62 @@ export default function Schedule() {
   const showEarly = earlyEventExists || currentHour < 6;
   const hourRange = showEarly ? Array.from({ length: 24 }, (_, h) => h) : Array.from({ length: 18 }, (_, h) => h + 6);
 
-  function isPastDue(timeBlock, completion) {
-    if (completion) return false;
+  function isPastDue(timeBlock, completion, currentDate) {
+    console.log('Schedule isPastDue check:', timeBlock.title, {
+      completion: completion?.status,
+      recur: timeBlock.recur,
+      start_time: timeBlock.start_time,
+      end_time: timeBlock.end_time,
+      isScheduledForToday: isTimeBlockScheduledForDate(timeBlock, currentDate)
+    });
+    
+    if (completion) {
+      console.log('Schedule isPastDue: has completion, returning false');
+      return false;
+    }
+    
+    // Check if the time block is scheduled for today
+    if (!isTimeBlockScheduledForDate(timeBlock, currentDate)) {
+      console.log('Schedule isPastDue: not scheduled for today, returning false');
+      return false;
+    }
+    
+    // Only show past due for today, not future dates
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const checkDate = new Date(currentDate);
+    checkDate.setHours(0, 0, 0, 0);
+    
+    if (checkDate > today) {
+      console.log('Schedule isPastDue: future date, returning false');
+      return false;
+    }
+    
+    // For one-time events, check if the event date is today or earlier
+    if (timeBlock.recur === 'once' && timeBlock.event_date) {
+      const eventDate = new Date(timeBlock.event_date);
+      eventDate.setHours(0,0,0,0);
+      const today = new Date(currentDate);
+      today.setHours(0,0,0,0);
+      if (eventDate > today) {
+        console.log('Schedule isPastDue: one-time event date is in future, returning false');
+        return false;
+      }
+    }
+    
     const now = new Date();
     const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
     const endTime = new Date();
     endTime.setHours(endHour, endMinute, 0, 0);
-    return now > endTime;
+    const isPastDue = now > endTime;
+    
+    console.log('Schedule isPastDue result:', timeBlock.title, {
+      now: now.toLocaleTimeString(),
+      endTime: endTime.toLocaleTimeString(),
+      isPastDue: isPastDue
+    });
+    
+    return isPastDue;
   }
 
   return (
@@ -824,17 +926,9 @@ export default function Schedule() {
                         ? 'bg-red-900 border-red-600'
                         : completion?.status === 'skipped'
                         ? 'bg-red-900 border-red-600'
-                        : (() => {
-                            // Past-due, untouched
-                            const now = new Date();
-                            const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
-                            const endTime = new Date();
-                            endTime.setHours(endHour, endMinute, 0, 0);
-                            if (now > endTime) {
-                              return 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-yellow-900';
-                            }
-                            return 'bg-slate-700 border-slate-600';
-                          })()
+                        : isPastDue(timeBlock, completion, currentDate)
+                        ? 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-black opacity-80'
+                        : 'bg-slate-700 border-slate-600'
                     }
                   `}
                   style={{
@@ -854,11 +948,11 @@ export default function Schedule() {
                     <h4 className={`text-xs sm:text-sm font-medium truncate
                       ${isCurrentTime ? 'text-orange-100' :
                         (completion?.status === 'completed' || timeBlock.task?.is_done) ? 'text-green-200' :
-                        isPastDue(timeBlock, completion) ? 'text-gray-800' : 'text-gray-400'
+                        isPastDue(timeBlock, completion, currentDate) ? 'text-gray-800' : 'text-gray-400'
                       }`}>
-                      {timeBlock.task?.title || timeBlock.title} <span className={`text-xs ${isPastDue(timeBlock, completion) ? 'text-gray-800' : 'text-gray-400'}`}>({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
+                      {timeBlock.task?.title || timeBlock.title} <span className={`text-xs ${isPastDue(timeBlock, completion, currentDate) ? 'text-gray-800' : 'text-gray-400'}`}>({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
                     </h4>
-                    {isPastDue(timeBlock, completion) && (
+                    {isPastDue(timeBlock, completion, currentDate) && (
                       <p className="text-xs mt-1 text-gray-800">Past due</p>
                     )}
                   </div>

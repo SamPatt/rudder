@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Task, Goal, TimeBlock, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
 import GoalSelector from './GoalSelector';
@@ -33,6 +33,13 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurType, setRecurType] = useState<'daily' | 'weekdays' | 'weekly' | 'custom'>('daily');
   const [customDays, setCustomDays] = useState<number[]>([]);
+  const [animatingOutId, setAnimatingOutId] = useState<string | null>(null);
+  const animationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [hiddenBlockIds, setHiddenBlockIds] = useState<string[]>([]);
+  const [completionsLoading, setCompletionsLoading] = useState(true);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const taskTitleInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchCompletions();
@@ -46,43 +53,55 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
   // Refetch tasks when mounted or when a task is toggled
   useEffect(() => {
     const fetchTasks = async () => {
+      setTasksLoading(true);
       const { data, error } = await supabase
         .from('tasks')
         .select(`*, task_goals (*, goal:goals (*, value:values (*)))`)
         .order('created_at', { ascending: false });
       if (!error && data) setTasks(data);
+      setTasksLoading(false);
     };
     fetchTasks();
   }, []);
 
   const fetchCompletions = async () => {
+    setCompletionsLoading(true);
     const { data, error } = await supabase
       .from('schedule_completions')
       .select('*');
     
     if (error) {
       console.error('Error fetching completions:', error);
+      setCompletions([]);
     } else {
       setCompletions(data || []);
     }
+    setCompletionsLoading(false);
   };
 
   const updateCurrentTimeBlock = () => {
     const now = new Date();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
-    const dayOfWeek = now.getDay();
     const todayStr = now.toISOString().split('T')[0];
 
-    // Use only TimeBlockRow fields
-    const todaysBlocks: TimeBlockRow[] = timeBlocks.filter(block => {
-      if (block.recur === 'daily') return true;
-      if (block.recur === 'weekdays' && dayOfWeek >= 1 && dayOfWeek <= 5) return true;
-      if (block.recur === 'weekly' && dayOfWeek === 1) return true;
-      if (block.custom_days && block.custom_days.includes(dayOfWeek)) return true;
-      if (block.recur === 'once' && block.event_date && block.event_date.split('T')[0] === todayStr) return true;
-      return false;
-    }).sort((a, b) => a.start_time.localeCompare(b.start_time));
+    console.log('updateCurrentTimeBlock - all time blocks:', timeBlocks.map(tb => ({
+      title: tb.title,
+      recur: tb.recur,
+      start_time: tb.start_time,
+      end_time: tb.end_time
+    })));
+
+    // Use the isScheduledForToday function to filter blocks
+    const todaysBlocks: TimeBlockRow[] = timeBlocks.filter(block => isScheduledForToday(block))
+      .sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+    console.log('updateCurrentTimeBlock - todays blocks:', todaysBlocks.map(tb => ({
+      title: tb.title,
+      recur: tb.recur,
+      start_time: tb.start_time,
+      end_time: tb.end_time
+    })));
 
     const currentMinutes = currentHour * 60 + currentMinute;
     let previousBlock: TimeBlockRow | null = null;
@@ -100,7 +119,13 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
         currentBlock = block;
       }
       if (blockEndMinutes <= currentMinutes) {
-        previousBlock = block;
+        // Find the most recent previous block (closest to current time)
+        if (!previousBlock || blockEndMinutes > (() => {
+          const [prevEndHour, prevEndMinute] = previousBlock.end_time.split(':').map(Number);
+          return prevEndHour * 60 + prevEndMinute;
+        })()) {
+          previousBlock = block;
+        }
       }
     }
 
@@ -110,6 +135,13 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
       const blockStartMinutes = startHour * 60 + startMinute;
       return blockStartMinutes > currentMinutes;
     }) || null;
+
+    console.log('updateCurrentTimeBlock - selected blocks:', {
+      previous: previousBlock?.title,
+      current: currentBlock?.title,
+      next: nextBlock?.title,
+      currentMinutes
+    });
 
     setPreviousTimeBlock(previousBlock);
     setCurrentTimeBlock(currentBlock);
@@ -121,69 +153,153 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     return completions.find(c => c.time_block_id === timeBlockId && c.date === today) || null;
   };
 
+  // Helper function to get the days a time block is scheduled for
+  const getDaysForTimeBlock = (timeBlock: TimeBlockRow): number[] => {
+    if (timeBlock.custom_days) {
+      return timeBlock.custom_days;
+    }
+    
+    switch (timeBlock.recur) {
+      case 'daily': return [0, 1, 2, 3, 4, 5, 6];
+      case 'weekdays': return [1, 2, 3, 4, 5];
+      case 'weekly': return [1]; // Monday
+      default: return [];
+    }
+  };
+
+  // Helper function to check if a time block is scheduled for today
+  const isScheduledForToday = (timeBlock: TimeBlockRow): boolean => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    
+    // Debug logging
+    console.log('Checking if scheduled for today:', timeBlock.title, {
+      recur: timeBlock.recur,
+      dayOfWeek,
+      custom_days: timeBlock.custom_days,
+      event_date: timeBlock.event_date
+    });
+    
+    // Handle one-time events
+    if (timeBlock.recur === 'once' && timeBlock.event_date) {
+      const eventDate = new Date(timeBlock.event_date);
+      const todayStr = today.toISOString().split('T')[0];
+      const eventDateStr = eventDate.toISOString().split('T')[0];
+      const isScheduled = todayStr === eventDateStr;
+      console.log('One-time event check:', timeBlock.title, { todayStr, eventDateStr, isScheduled });
+      return isScheduled;
+    }
+    
+    // For recurring events, check if today's day of week is in the scheduled days
+    const days = getDaysForTimeBlock(timeBlock);
+    const isScheduled = days.includes(dayOfWeek);
+    console.log('Recurring event check:', timeBlock.title, { days, dayOfWeek, isScheduled });
+    return isScheduled;
+  };
+
+  function isPastDueIncomplete(block: TimeBlockRow | null): boolean {
+    if (!block) return false;
+    
+    // Debug logging
+    console.log('Checking if past due:', block.title, {
+      recur: block.recur,
+      start_time: block.start_time,
+      end_time: block.end_time,
+      isScheduledForToday: isScheduledForToday(block)
+    });
+    
+    // Check if the block is scheduled for today
+    if (!isScheduledForToday(block)) {
+      console.log('Block not scheduled for today:', block.title);
+      return false;
+    }
+    
+    const completion = getCompletionStatus(block.id);
+    if (completion && ['completed', 'failed', 'skipped'].includes(completion.status)) {
+      console.log('Block has completion status:', block.title, completion.status);
+      return false;
+    }
+    
+    const now = new Date();
+    const [endHour, endMinute] = block.end_time.split(':').map(Number);
+    const endTime = new Date();
+    endTime.setHours(endHour, endMinute, 0, 0);
+    const isPastDue = now > endTime;
+    
+    console.log('Past due check result:', block.title, {
+      now: now.toLocaleTimeString(),
+      endTime: endTime.toLocaleTimeString(),
+      isPastDue
+    });
+    
+    return isPastDue;
+  }
+
   const handleCompletion = async (timeBlockId: string, status: 'completed' | 'skipped' | 'failed') => {
+    if (previousTimeBlock && previousTimeBlock.id === timeBlockId && isPastDueIncomplete(previousTimeBlock)) {
+      setAnimatingOutId(timeBlockId);
+      if (animationTimeoutRef.current) clearTimeout(animationTimeoutRef.current);
+      animationTimeoutRef.current = setTimeout(() => {
+        setAnimatingOutId(null);
+        setHiddenBlockIds(ids => [...ids, timeBlockId]);
+        actuallyHandleCompletion(timeBlockId, status);
+      }, 400); // 400ms fade out
+      return;
+    }
+    actuallyHandleCompletion(timeBlockId, status);
+  };
+
+  const actuallyHandleCompletion = async (timeBlockId: string, status: 'completed' | 'skipped' | 'failed') => {
     const today = new Date().toISOString().split('T')[0];
-    
-    // Check if completion already exists
     const existingCompletion = getCompletionStatus(timeBlockId);
-    
     if (existingCompletion) {
-      // Update existing completion
       const { error } = await supabase
         .from('schedule_completions')
         .update({ status })
         .eq('id', existingCompletion.id);
-      
       if (error) {
         console.error('Error updating completion:', error);
         return;
       }
     } else {
-      // Create new completion
       const { error } = await supabase
         .from('schedule_completions')
-        .insert([{
-          time_block_id: timeBlockId,
-          date: today,
-          status,
-        }]);
-      
+        .insert([{ time_block_id: timeBlockId, date: today, status }]);
       if (error) {
         console.error('Error creating completion:', error);
         return;
       }
     }
-
-    // If completed, create a task
     if (status === 'completed') {
       const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
       if (timeBlock) {
         const { error: taskError } = await supabase
           .from('tasks')
-          .insert([{
-            title: `${timeBlock.title} (${timeBlock.start_time} - ${timeBlock.end_time})`,
+          .insert([{ 
+            title: `${timeBlock.title} (${timeBlock.start_time} - ${timeBlock.end_time})`, 
             is_done: true,
+            date: today
           }]);
-        
         if (taskError) {
           console.error('Error creating task:', taskError);
         }
       }
     }
-
     fetchCompletions();
   };
 
   const getBlockStatusColor = (timeBlock: TimeBlockRow) => {
     const completion = getCompletionStatus(timeBlock.id);
     if (!completion) {
-      // Check if it's past the end time
-      const now = new Date();
-      const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
-      const endTime = new Date();
-      endTime.setHours(endHour, endMinute, 0, 0);
-      if (now > endTime) {
-        return 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-black opacity-80'; // Brighter yellow, animated, de-emphasized
+      // Only show past due if the block is scheduled for today
+      if (isScheduledForToday(timeBlock)) {
+        const now = new Date();
+        const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
+        const endTime = new Date();
+        endTime.setHours(endHour, endMinute, 0, 0);
+        if (now > endTime) {
+          return 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-black opacity-80'; // Brighter yellow, animated, de-emphasized
+        }
       }
       return 'bg-slate-700 border-slate-600'; // Future or current
     }
@@ -203,13 +319,16 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
   const getBlockStatusText = (timeBlock: TimeBlockRow) => {
     const completion = getCompletionStatus(timeBlock.id);
     if (!completion) {
-      const now = new Date();
-      const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
-      const endTime = new Date();
-      endTime.setHours(endHour, endMinute, 0, 0);
-      
-      if (now > endTime) {
-        return 'Past due';
+      // Only show past due if the block is scheduled for today
+      if (isScheduledForToday(timeBlock)) {
+        const now = new Date();
+        const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
+        const endTime = new Date();
+        endTime.setHours(endHour, endMinute, 0, 0);
+        
+        if (now > endTime) {
+          return 'Past due';
+        }
       }
       return '';
     }
@@ -231,8 +350,64 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     setShowGoalSelector(true);
   };
 
+  // Helper function to determine the appropriate date for a task
+  const getTaskDate = (isRecurring: boolean, recurType: string, customDays: number[]): string => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    if (!isRecurring) {
+      // For one-time tasks, use today's date
+      return todayStr;
+    }
+    
+    // For recurring tasks, find the next occurrence
+    switch (recurType) {
+      case 'daily':
+        return todayStr;
+      
+      case 'weekdays':
+        // Find next weekday (Monday-Friday)
+        const dayOfWeek = today.getDay();
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+          return todayStr;
+        } else {
+          // If it's weekend, find next Monday
+          const daysUntilMonday = dayOfWeek === 0 ? 1 : 8 - dayOfWeek;
+          const nextMonday = new Date(today);
+          nextMonday.setDate(today.getDate() + daysUntilMonday);
+          return nextMonday.toISOString().split('T')[0];
+        }
+      
+      case 'weekly':
+        // For weekly (Monday), find next Monday
+        const currentDay = today.getDay();
+        const daysUntilMonday = currentDay === 1 ? 0 : (8 - currentDay) % 7;
+        const nextMonday = new Date(today);
+        nextMonday.setDate(today.getDate() + daysUntilMonday);
+        return nextMonday.toISOString().split('T')[0];
+      
+      case 'custom':
+        if (customDays.length === 0) {
+          return todayStr;
+        }
+        // Find the next custom day
+        const sortedDays = [...customDays].sort();
+        const currentDayOfWeek = today.getDay();
+        const nextDay = sortedDays.find(day => day > currentDayOfWeek) || sortedDays[0];
+        const daysToAdd = nextDay > currentDayOfWeek ? nextDay - currentDayOfWeek : 7 - currentDayOfWeek + nextDay;
+        const nextDate = new Date(today);
+        nextDate.setDate(today.getDate() + daysToAdd);
+        return nextDate.toISOString().split('T')[0];
+      
+      default:
+        return todayStr;
+    }
+  };
+
   const handleGoalSelect = async (goalIds: string[]) => {
     try {
+      const taskDate = getTaskDate(isRecurring, recurType, customDays);
+      
       // Create the task first
       const { data: task, error: taskError } = await supabase
         .from('tasks')
@@ -242,6 +417,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
           is_recurring: isRecurring,
           recur_type: isRecurring ? recurType : null,
           custom_days: isRecurring && recurType === 'custom' ? customDays : null,
+          date: taskDate,
         })
         .select()
         .single();
@@ -286,6 +462,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
       setIsRecurring(false);
       setRecurType('daily');
       setCustomDays([]);
+      setShowQuickAdd(false);
     } catch (error) {
       console.error('Error adding task:', error);
     }
@@ -373,14 +550,63 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     return `${hour}:${minute.toString().padStart(2, '0')} ${ampm}`;
   };
 
+  // When timeBlocks change (e.g., after deletion), remove any hiddenBlockIds that no longer exist
+  useEffect(() => {
+    setHiddenBlockIds(ids => ids.filter(id => timeBlocks.some(tb => tb.id === id)));
+  }, [timeBlocks]);
+
+  // Only show previous/current/next cards if the block exists in timeBlocks and is not hidden
+  const blockExists = (block: TimeBlockRow | null) => block && timeBlocks.some(tb => tb.id === block.id);
+
+  // Focus the input when expanding
+  useEffect(() => {
+    if (showQuickAdd && taskTitleInputRef.current) {
+      taskTitleInputRef.current.focus();
+    }
+  }, [showQuickAdd]);
+
+  // Helper function to get all past due blocks for today
+  const getPastDueBlocks = (): TimeBlockRow[] => {
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    
+    return timeBlocks.filter(block => {
+      // Check if scheduled for today
+      if (!isScheduledForToday(block)) return false;
+      
+      // Check if it has a completion status
+      const completion = getCompletionStatus(block.id);
+      if (completion && ['completed', 'failed', 'skipped'].includes(completion.status)) return false;
+      
+      // Check if it's past the end time
+      const [endHour, endMinute] = block.end_time.split(':').map(Number);
+      const blockEndMinutes = endHour * 60 + endMinute;
+      return currentMinutes > blockEndMinutes;
+    });
+  };
+
+  // Update the past due checking to use all past due blocks
+  useEffect(() => {
+    const pastDueBlocks = getPastDueBlocks();
+    console.log('Past due blocks found:', pastDueBlocks.map(b => b.title));
+    
+    // Check if any of the past due blocks should be shown
+    pastDueBlocks.forEach(block => {
+      console.log('Checking past due block:', block.title, {
+        end_time: block.end_time,
+        isPastDue: isPastDueIncomplete(block)
+      });
+    });
+  }, [timeBlocks, completions]);
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Time Blocks Overview - Only show up to three cards, no header */}
-      {(previousTimeBlock || currentTimeBlock || nextTimeBlock) && (
+      {!completionsLoading && (previousTimeBlock || currentTimeBlock || nextTimeBlock) && (
         <div className="space-y-3">
           {/* Previous Time Block */}
-          {previousTimeBlock && (
-            <div className={`p-3 sm:p-4 rounded-lg border ${getBlockStatusColor(previousTimeBlock)}` + (getBlockStatusColor(previousTimeBlock).includes('yellow') ? ' text-yellow-200' : '')}>
+          {isPastDueIncomplete(previousTimeBlock) && previousTimeBlock && previousTimeBlock.id !== animatingOutId && !hiddenBlockIds.includes(previousTimeBlock.id) && blockExists(previousTimeBlock) && (
+            <div className={`p-3 sm:p-4 rounded-lg border ${getBlockStatusColor(previousTimeBlock)} transition-opacity duration-400 ${animatingOutId === previousTimeBlock.id ? 'opacity-0' : 'opacity-100'}`}>
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
                   <h4 className={`text-base sm:text-lg font-medium truncate
@@ -421,7 +647,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
           )}
 
           {/* Current Time Block - use same color/animation as schedule */}
-          {currentTimeBlock && (
+          {currentTimeBlock && blockExists(currentTimeBlock) && !hiddenBlockIds.includes(currentTimeBlock.id) && (
             <div className="border-orange-400 animate-gradient-slow bg-slate-800 border rounded-lg p-3 sm:p-4">
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
@@ -463,7 +689,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
           )}
 
           {/* Next Time Block (if still today) */}
-          {nextTimeBlock && (
+          {nextTimeBlock && blockExists(nextTimeBlock) && !hiddenBlockIds.includes(nextTimeBlock.id) && (
             <div className={`p-3 sm:p-4 rounded-lg border ${getBlockStatusColor(nextTimeBlock)}`}>
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
@@ -508,91 +734,99 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
 
       {/* Quick Add Task */}
       <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
-        <h2 className="text-lg font-semibold text-slate-200 mb-4">Quick Add Task</h2>
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <input
-              type="text"
-              value={newTaskTitle}
-              onChange={(e) => setNewTaskTitle(e.target.value)}
-              placeholder="Enter task title..."
-              className="flex-1 px-3 py-2 border border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-forest-500 bg-slate-700 text-slate-200"
-              onKeyPress={(e) => e.key === 'Enter' && handleAddTask()}
-            />
-            <button
-              onClick={handleAddTask}
-              disabled={!newTaskTitle.trim()}
-              className="bg-forest-600 text-white px-4 py-2 rounded-md hover:bg-forest-700 focus:outline-none focus:ring-2 focus:ring-forest-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Add Task
-            </button>
-          </div>
-          
-          {/* Recurring Task Options */}
-          <div className="flex items-center space-x-4">
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={isRecurring}
-                onChange={(e) => setIsRecurring(e.target.checked)}
-                className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600"
-              />
-              <span className="text-slate-300 text-sm">Make this a daily task</span>
-            </label>
-          </div>
-          
-          {isRecurring && (
-            <div className="space-y-3 p-3 bg-slate-700 rounded-md">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Recurrence Type
-                </label>
-                <select
-                  value={recurType}
-                  onChange={(e) => setRecurType(e.target.value as any)}
-                  className="w-full px-3 py-2 bg-slate-600 border border-slate-500 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-forest-500"
+        {!showQuickAdd ? (
+          <button
+            onClick={() => setShowQuickAdd(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-forest-600 text-white rounded-md hover:bg-forest-700 focus:outline-none focus:ring-2 focus:ring-forest-500 transition-colors w-full justify-center text-lg font-semibold"
+          >
+            <span className="text-2xl">+</span> Add Task
+          </button>
+        ) : (
+          <div>
+            <h2 className="text-lg font-semibold text-slate-200 mb-4">Quick Add Task</h2>
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                <input
+                  ref={taskTitleInputRef}
+                  type="text"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  placeholder="Enter task title..."
+                  className="flex-1 px-3 py-2 border border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-forest-500 bg-slate-700 text-slate-200"
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddTask()}
+                />
+                <button
+                  onClick={handleAddTask}
+                  disabled={!newTaskTitle.trim()}
+                  className="bg-forest-600 text-white px-4 py-2 rounded-md hover:bg-forest-700 focus:outline-none focus:ring-2 focus:ring-forest-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  <option value="daily">Daily</option>
-                  <option value="weekdays">Weekdays</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="custom">Custom Days</option>
-                </select>
+                  Add Task
+                </button>
               </div>
-              
-              {recurType === 'custom' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Select Days
-                  </label>
-                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
-                    {DAYS_OF_WEEK.map(day => (
-                      <button
-                        key={day.value}
-                        type="button"
-                        onClick={() => handleDayToggle(day.value)}
-                        className={`p-1 sm:p-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
-                          customDays.includes(day.value)
-                            ? 'bg-forest-600 text-white'
-                            : 'bg-slate-600 text-gray-300 hover:bg-slate-500'
-                        }`}
-                      >
-                        {day.short}
-                      </button>
-                    ))}
+              {/* Recurring Task Options */}
+              <div className="flex items-center space-x-4">
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={isRecurring}
+                    onChange={(e) => setIsRecurring(e.target.checked)}
+                    className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600"
+                  />
+                  <span className="text-slate-300 text-sm">Make this a daily task</span>
+                </label>
+              </div>
+              {isRecurring && (
+                <div className="space-y-3 p-3 bg-slate-700 rounded-md">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Recurrence Type
+                    </label>
+                    <select
+                      value={recurType}
+                      onChange={(e) => setRecurType(e.target.value as any)}
+                      className="w-full px-3 py-2 bg-slate-600 border border-slate-500 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-forest-500"
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="weekdays">Weekdays</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="custom">Custom Days</option>
+                    </select>
                   </div>
+                  {recurType === 'custom' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Select Days
+                      </label>
+                      <div className="grid grid-cols-7 gap-1 sm:gap-2">
+                        {DAYS_OF_WEEK.map(day => (
+                          <button
+                            key={day.value}
+                            type="button"
+                            onClick={() => handleDayToggle(day.value)}
+                            className={`p-1 sm:p-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                              customDays.includes(day.value)
+                                ? 'bg-forest-600 text-white'
+                                : 'bg-slate-600 text-gray-300 hover:bg-slate-500'
+                            }`}
+                          >
+                            {day.short}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {selectedGoalId && (
+                <div className="p-2 bg-forest-900 border border-forest-600 rounded-md">
+                  <p className="text-sm text-forest-200">
+                    <span className="font-medium">Selected goal:</span> {getSelectedGoalNames()}
+                  </p>
                 </div>
               )}
             </div>
-          )}
-          
-          {selectedGoalId && (
-            <div className="p-2 bg-forest-900 border border-forest-600 rounded-md">
-              <p className="text-sm text-forest-200">
-                <span className="font-medium">Selected goal:</span> {getSelectedGoalNames()}
-              </p>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Tasks List */}

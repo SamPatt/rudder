@@ -22,6 +22,8 @@ function App() {
 
   const fetchInitialData = async () => {
     try {
+      console.log('Starting to fetch initial data...');
+      
       const [tasksResult, goalsResult, valuesResult, timeBlocksResult] = await Promise.all([
         supabase.from('tasks').select(`
           *,
@@ -35,13 +37,33 @@ function App() {
         `).order('created_at', { ascending: false }),
         supabase.from('goals').select('*, value:values(*)').order('created_at', { ascending: false }),
         supabase.from('values').select('*').order('created_at', { ascending: false }),
-        supabase.from('time_blocks').select('*, goal:goals(*)').order('start_hour', { ascending: true })
+        supabase.from('time_blocks').select('*, goal:goals(*)').order('start_time', { ascending: true })
       ]);
+
+      console.log('Time blocks query result:', {
+        data: timeBlocksResult.data,
+        error: timeBlocksResult.error,
+        count: timeBlocksResult.data?.length
+      });
 
       if (tasksResult.data) setTasks(tasksResult.data);
       if (goalsResult.data) setGoals(goalsResult.data);
       if (valuesResult.data) setValues(valuesResult.data);
-      if (timeBlocksResult.data) setTimeBlocks(timeBlocksResult.data);
+      if (timeBlocksResult.data) {
+        console.log('Loaded time blocks:', timeBlocksResult.data.map(tb => ({
+          title: tb.title,
+          recur: tb.recur,
+          start_time: tb.start_time,
+          end_time: tb.end_time
+        })));
+        setTimeBlocks(timeBlocksResult.data);
+      }
+      
+      // Log any errors
+      if (tasksResult.error) console.error('Error fetching tasks:', tasksResult.error);
+      if (goalsResult.error) console.error('Error fetching goals:', goalsResult.error);
+      if (valuesResult.error) console.error('Error fetching values:', valuesResult.error);
+      if (timeBlocksResult.error) console.error('Error fetching time blocks:', timeBlocksResult.error);
     } catch (error) {
       console.error('Error fetching initial data:', error);
     } finally {

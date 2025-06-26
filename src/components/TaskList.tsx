@@ -38,8 +38,64 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
     setShowGoalSelector(true);
   };
 
+  // Helper function to determine the appropriate date for a task
+  const getTaskDate = (isRecurring: boolean, recurType: string, customDays: number[]): string => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    if (!isRecurring) {
+      // For one-time tasks, use today's date
+      return todayStr;
+    }
+    
+    // For recurring tasks, find the next occurrence
+    switch (recurType) {
+      case 'daily':
+        return todayStr;
+      
+      case 'weekdays':
+        // Find next weekday (Monday-Friday)
+        const dayOfWeek = today.getDay();
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+          return todayStr;
+        } else {
+          // If it's weekend, find next Monday
+          const daysUntilMonday = dayOfWeek === 0 ? 1 : 8 - dayOfWeek;
+          const nextMonday = new Date(today);
+          nextMonday.setDate(today.getDate() + daysUntilMonday);
+          return nextMonday.toISOString().split('T')[0];
+        }
+      
+      case 'weekly':
+        // For weekly (Monday), find next Monday
+        const currentDay = today.getDay();
+        const daysUntilMonday = currentDay === 1 ? 0 : (8 - currentDay) % 7;
+        const nextMonday = new Date(today);
+        nextMonday.setDate(today.getDate() + daysUntilMonday);
+        return nextMonday.toISOString().split('T')[0];
+      
+      case 'custom':
+        if (customDays.length === 0) {
+          return todayStr;
+        }
+        // Find the next custom day
+        const sortedDays = [...customDays].sort();
+        const currentDayOfWeek = today.getDay();
+        const nextDay = sortedDays.find(day => day > currentDayOfWeek) || sortedDays[0];
+        const daysToAdd = nextDay > currentDayOfWeek ? nextDay - currentDayOfWeek : 7 - currentDayOfWeek + nextDay;
+        const nextDate = new Date(today);
+        nextDate.setDate(today.getDate() + daysToAdd);
+        return nextDate.toISOString().split('T')[0];
+      
+      default:
+        return todayStr;
+    }
+  };
+
   const handleGoalSelect = async (goalIds: string[]) => {
     try {
+      const taskDate = getTaskDate(isRecurring, recurType, customDays);
+      
       // Create the task first
       const { data: task, error: taskError } = await supabase
         .from('tasks')
@@ -49,6 +105,7 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
           is_recurring: isRecurring,
           recur_type: isRecurring ? recurType : null,
           custom_days: isRecurring && recurType === 'custom' ? customDays : null,
+          date: taskDate,
         })
         .select()
         .single();
