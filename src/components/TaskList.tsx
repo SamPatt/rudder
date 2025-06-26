@@ -4,13 +4,14 @@ import { supabase } from '../lib/supabase';
 import GoalSelector from './GoalSelector';
 import { getValueIcon } from '../lib/valueIcons';
 import ConfirmationModal from './ConfirmationModal';
+import { User } from '@supabase/supabase-js';
 
 interface TaskListProps {
   tasks: Task[];
   goals: Goal[];
   values: Value[];
   setTasks: (tasks: Task[]) => void;
-  user: any;
+  user: User;
 }
 
 export default function TaskList({ tasks, goals, values, setTasks, user }: TaskListProps) {

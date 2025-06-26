@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { Database } from '../types/database';
+import { User } from '@supabase/supabase-js';
 import GoalSelector from './GoalSelector';
 import TimeDropdown from './TimeDropdown';
 import ConfirmationModal from './ConfirmationModal';
@@ -15,6 +16,10 @@ type TimeBlockWithLegacy = TimeBlock & {
   duration_m?: number;
   goal_id?: string | null;
 };
+
+interface ScheduleProps {
+  user: User;
+}
 
 const DAYS_OF_WEEK = [
   { value: 0, label: 'Sunday', short: 'Sun' },
@@ -34,7 +39,7 @@ const RECURRENCE_OPTIONS = [
   { value: 'once', label: 'One Time Event' },
 ];
 
-export default function Schedule({ user }) {
+export default function Schedule({ user }: ScheduleProps) {
   const [timeBlocks, setTimeBlocks] = useState<TimeBlockWithLegacy[]>([]);
   const [completions, setCompletions] = useState<ScheduleCompletion[]>([]);
   const [showForm, setShowForm] = useState(false);

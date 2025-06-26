@@ -3,13 +3,14 @@ import { Goal, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
 import ConfirmationModal from './ConfirmationModal';
 import { getValueIcon } from '../lib/valueIcons';
+import { User } from '@supabase/supabase-js';
 
 interface GoalManagerProps {
   goals: Goal[];
   values: Value[];
   setGoals: (goals: Goal[]) => void;
   setValues: (values: Value[]) => void;
-  user: any;
+  user: User;
 }
 
 export default function GoalManager({ goals, values, setGoals, setValues, user }: GoalManagerProps) {

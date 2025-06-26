@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { Task, Goal, TimeBlock, Value } from './types/database';
+import { User } from '@supabase/supabase-js';
 import Dashboard from './components/Dashboard';
 import TaskList from './components/TaskList';
 import Schedule from './components/Schedule';
@@ -17,7 +18,7 @@ function App() {
   const [values, setValues] = useState<Value[]>([]);
   const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {

@@ -3,6 +3,8 @@ import { Task, Goal, TimeBlock, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
 import GoalSelector from './GoalSelector';
 import type { Database } from '../types/database';
+import { User } from '@supabase/supabase-js';
+
 type TimeBlockRow = Database['public']['Tables']['time_blocks']['Row'];
 
 interface DashboardProps {
@@ -11,7 +13,7 @@ interface DashboardProps {
   values: Value[];
   timeBlocks: TimeBlock[];
   setTasks: (tasks: Task[]) => void;
-  user: any;
+  user: User;
 }
 
 type ScheduleCompletion = {
