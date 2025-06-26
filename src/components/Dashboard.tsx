@@ -11,6 +11,7 @@ interface DashboardProps {
   values: Value[];
   timeBlocks: TimeBlock[];
   setTasks: (tasks: Task[]) => void;
+  user: any;
 }
 
 type ScheduleCompletion = {
@@ -21,7 +22,7 @@ type ScheduleCompletion = {
   created_at: string;
 };
 
-export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }: DashboardProps) {
+export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks, user }: DashboardProps) {
   const [completions, setCompletions] = useState<ScheduleCompletion[]>([]);
   const [completionsLoading, setCompletionsLoading] = useState(true);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -376,18 +377,20 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
   const handleGoalSelect = async (goalIds: string[]) => {
     try {
       const taskDate = getTaskDate(isRecurring, recurType, customDays);
-      
+      const insertPayload = {
+        title: newTaskTitle,
+        is_done: false,
+        is_recurring: isRecurring,
+        recur_type: isRecurring ? recurType : null,
+        custom_days: isRecurring && recurType === 'custom' ? customDays : null,
+        date: taskDate,
+        user_id: user.id,
+      };
+      console.log('Inserting task with payload:', insertPayload, 'User:', user);
       // Create the task first
       const { data: task, error: taskError } = await supabase
         .from('tasks')
-        .insert({
-          title: newTaskTitle,
-          is_done: false,
-          is_recurring: isRecurring,
-          recur_type: isRecurring ? recurType : null,
-          custom_days: isRecurring && recurType === 'custom' ? customDays : null,
-          date: taskDate,
-        })
+        .insert(insertPayload)
         .select()
         .single();
 
@@ -397,13 +400,12 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
       if (goalIds.length > 0) {
         const taskGoals = goalIds.map(goalId => ({
           task_id: task.id,
-          goal_id: goalId
+          goal_id: goalId,
+          user_id: user.id,
         }));
-
         const { error: goalError } = await supabase
           .from('task_goals')
           .insert(taskGoals);
-
         if (goalError) throw goalError;
       }
 

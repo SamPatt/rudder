@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Database } from '../types/database';
 import GoalSelector from './GoalSelector';
 import TimeDropdown from './TimeDropdown';
+import ConfirmationModal from './ConfirmationModal';
 
 type TimeBlock = Database['public']['Tables']['time_blocks']['Row'];
 type ScheduleCompletion = Database['public']['Tables']['schedule_completions']['Row'];
@@ -33,7 +34,7 @@ const RECURRENCE_OPTIONS = [
   { value: 'once', label: 'One Time Event' },
 ];
 
-export default function Schedule() {
+export default function Schedule({ user }) {
   const [timeBlocks, setTimeBlocks] = useState<TimeBlockWithLegacy[]>([]);
   const [completions, setCompletions] = useState<ScheduleCompletion[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -57,6 +58,8 @@ export default function Schedule() {
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number; width: number } | null>(null);
   const [activeMenuBlockId, setActiveMenuBlockId] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [timeBlockToDelete, setTimeBlockToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTimeBlocks();
@@ -69,6 +72,7 @@ export default function Schedule() {
     const { data, error } = await supabase
       .from('time_blocks')
       .select('*, task:tasks(*)')
+      .eq('user_id', user.id)
       .order('start_time', { ascending: true });
     
     if (error) {
@@ -76,6 +80,7 @@ export default function Schedule() {
       const { data: oldData, error: oldError } = await supabase
         .from('time_blocks')
         .select('*')
+        .eq('user_id', user.id)
         .order('start_hour', { ascending: true });
       
       if (oldError) {
@@ -130,7 +135,8 @@ export default function Schedule() {
   const fetchCompletions = async () => {
     const { data, error } = await supabase
       .from('schedule_completions')
-      .select('*');
+      .select('*')
+      .eq('user_id', user.id);
     
     if (error) {
       console.error('Error fetching completions:', error);
@@ -142,7 +148,8 @@ export default function Schedule() {
   const fetchGoals = async () => {
     const { data, error } = await supabase
       .from('goals')
-      .select('*');
+      .select('*')
+      .eq('user_id', user.id);
     
     if (error) {
       console.error('Error fetching goals:', error);
@@ -154,7 +161,8 @@ export default function Schedule() {
   const fetchValues = async () => {
     const { data, error } = await supabase
       .from('values')
-      .select('*');
+      .select('*')
+      .eq('user_id', user.id);
     
     if (error) {
       console.error('Error fetching values:', error);
@@ -171,6 +179,7 @@ export default function Schedule() {
       custom_days: formData.recur === 'custom' ? formData.custom_days : null,
       event_date: formData.recur === 'once' ? formData.event_date : null,
       goal_id: formData.goal_id || null,
+      user_id: user.id,
     };
 
     if (editingBlock) {
@@ -214,7 +223,8 @@ export default function Schedule() {
           is_recurring: isRecurring,
           recur_type: recurType,
           custom_days: customDays,
-          date: today
+          date: today,
+          user_id: user.id,
         }])
         .select('id')
         .single();
@@ -274,35 +284,43 @@ export default function Schedule() {
   };
 
   const handleDelete = async (timeBlockId: string) => {
-    if (window.confirm('Are you sure you want to delete this time block?')) {
-      // First, find the time block to get its title
-      const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
-      
-      if (timeBlock) {
-        // Delete the time block first to avoid foreign key constraint
-        const { error: timeBlockError } = await supabase
-          .from('time_blocks')
-          .delete()
-          .eq('id', timeBlockId);
+    setTimeBlockToDelete(timeBlockId);
+    setShowDeleteModal(true);
+  };
 
-        if (timeBlockError) {
-          console.error('Error deleting time block:', timeBlockError);
-          return;
-        }
-        
-        // Now delete any associated tasks with the same title
-        const { error: taskDeleteError } = await supabase
-          .from('tasks')
-          .delete()
-          .eq('title', timeBlock.title);
+  const confirmDelete = async () => {
+    if (!timeBlockToDelete) return;
+    
+    // First, find the time block to get its title
+    const timeBlock = timeBlocks.find(tb => tb.id === timeBlockToDelete);
+    
+    if (timeBlock) {
+      // Delete the time block first to avoid foreign key constraint
+      const { error: timeBlockError } = await supabase
+        .from('time_blocks')
+        .delete()
+        .eq('id', timeBlockToDelete);
 
-        if (taskDeleteError) {
-          console.error('Error deleting associated tasks:', taskDeleteError);
-        }
-        
-        fetchTimeBlocks();
+      if (timeBlockError) {
+        console.error('Error deleting time block:', timeBlockError);
+        return;
       }
+      
+      // Now delete any associated tasks with the same title
+      const { error: taskDeleteError } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('title', timeBlock.title)
+        .eq('user_id', user.id);
+
+      if (taskDeleteError) {
+        console.error('Error deleting associated tasks:', taskDeleteError);
+      }
+      
+      fetchTimeBlocks();
     }
+    
+    setTimeBlockToDelete(null);
   };
 
   const handleCancel = () => {
@@ -413,7 +431,8 @@ export default function Schedule() {
       const { error } = await supabase
         .from('schedule_completions')
         .delete()
-        .eq('id', existingCompletion.id);
+        .eq('id', existingCompletion.id)
+        .eq('user_id', user.id);
       
       if (error) {
         console.error('Error deleting completion:', error);
@@ -424,7 +443,8 @@ export default function Schedule() {
       const { error } = await supabase
         .from('schedule_completions')
         .update({ status })
-        .eq('id', existingCompletion.id);
+        .eq('id', existingCompletion.id)
+        .eq('user_id', user.id);
       
       if (error) {
         console.error('Error updating completion:', error);
@@ -434,11 +454,7 @@ export default function Schedule() {
       // Create new completion
       const { error } = await supabase
         .from('schedule_completions')
-        .insert([{
-          time_block_id: timeBlockId,
-          date: dateStr,
-          status,
-        }]);
+        .insert([{ time_block_id: timeBlockId, date: dateStr, status, user_id: user.id }]);
       
       if (error) {
         console.error('Error creating completion:', error);
@@ -455,11 +471,12 @@ export default function Schedule() {
         .from('tasks')
         .select('*')
         .eq('title', timeBlock.title)
-        .eq('date', todayStr);
+        .eq('date', todayStr)
+        .eq('user_id', user.id);
       if (!taskFetchError && existingTasks && existingTasks.length > 0) {
         // Mark as done
         const taskId = existingTasks[0].id;
-        await supabase.from('tasks').update({ is_done: true }).eq('id', taskId);
+        await supabase.from('tasks').update({ is_done: true }).eq('id', taskId).eq('user_id', user.id);
       } else {
         // Create a new task for today
         await supabase.from('tasks').insert([
@@ -470,6 +487,7 @@ export default function Schedule() {
             recur_type: timeBlock.recur !== 'once' ? timeBlock.recur : null,
             custom_days: timeBlock.recur !== 'once' ? timeBlock.custom_days : null,
             date: todayStr,
+            user_id: user.id,
           },
         ]);
       }
@@ -1056,6 +1074,21 @@ export default function Schedule() {
         onGoalSelect={handleGoalSelect}
         selectedGoalIds={selectedGoalId ? [selectedGoalId] : []}
         multiple={false}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false);
+          setTimeBlockToDelete(null);
+        }}
+        onConfirm={confirmDelete}
+        title="Delete Time Block"
+        message="Are you sure you want to delete this time block? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        confirmButtonVariant="danger"
       />
     </div>
   );

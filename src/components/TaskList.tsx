@@ -3,15 +3,17 @@ import { Task, Goal, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
 import GoalSelector from './GoalSelector';
 import { getValueIcon } from '../lib/valueIcons';
+import ConfirmationModal from './ConfirmationModal';
 
 interface TaskListProps {
   tasks: Task[];
   goals: Goal[];
   values: Value[];
   setTasks: (tasks: Task[]) => void;
+  user: any;
 }
 
-export default function TaskList({ tasks, goals, values, setTasks }: TaskListProps) {
+export default function TaskList({ tasks, goals, values, setTasks, user }: TaskListProps) {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [filter, setFilter] = useState<'all' | 'incomplete' | 'complete'>('all');
   const [showGoalSelector, setShowGoalSelector] = useState(false);
@@ -20,6 +22,8 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
   const [recurType, setRecurType] = useState<'daily' | 'weekdays' | 'weekly' | 'custom'>('daily');
   const [customDays, setCustomDays] = useState<number[]>([]);
   const [editMode, setEditMode] = useState<{ [taskId: string]: boolean }>({});
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
 
   const handleAddTask = () => {
     if (!newTaskTitle.trim()) return;
@@ -85,16 +89,19 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
       const taskDate = getTaskDate(isRecurring, recurType, customDays);
       
       // Create the task first
+      const insertPayload = {
+        title: newTaskTitle,
+        is_done: false,
+        is_recurring: isRecurring,
+        recur_type: isRecurring ? recurType : null,
+        custom_days: isRecurring && recurType === 'custom' ? customDays : null,
+        date: taskDate,
+        user_id: user.id,
+      };
+      console.log('Inserting task with payload:', insertPayload, 'User:', user);
       const { data: task, error: taskError } = await supabase
         .from('tasks')
-        .insert({
-          title: newTaskTitle,
-          is_done: false,
-          is_recurring: isRecurring,
-          recur_type: isRecurring ? recurType : null,
-          custom_days: isRecurring && recurType === 'custom' ? customDays : null,
-          date: taskDate,
-        })
+        .insert(insertPayload)
         .select()
         .single();
 
@@ -104,7 +111,8 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
       if (goalIds.length > 0) {
         const taskGoals = goalIds.map(goalId => ({
           task_id: task.id,
-          goal_id: goalId
+          goal_id: goalId,
+          user_id: user.id,
         }));
 
         const { error: goalError } = await supabase
@@ -128,6 +136,7 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
           )
         `)
         .eq('id', task.id)
+        .eq('user_id', user.id)
         .single();
 
       if (fetchError) throw fetchError;
@@ -147,7 +156,8 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
       const { error } = await supabase
         .from('tasks')
         .update({ is_done: !currentStatus })
-        .eq('id', taskId);
+        .eq('id', taskId)
+        .eq('user_id', user.id);
 
       if (error) throw error;
 
@@ -164,7 +174,8 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
       const { error } = await supabase
         .from('tasks')
         .delete()
-        .eq('id', taskId);
+        .eq('id', taskId)
+        .eq('user_id', user.id);
 
       if (error) throw error;
 
@@ -174,13 +185,21 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
     }
   };
 
+  const confirmDelete = async () => {
+    if (taskToDelete) {
+      await deleteTask(taskToDelete);
+      setTaskToDelete(null);
+    }
+  };
+
   const updateTaskGoals = async (taskId: string, goalIds: string[]) => {
     try {
       // First, delete existing goal relationships
       const { error: deleteError } = await supabase
         .from('task_goals')
         .delete()
-        .eq('task_id', taskId);
+        .eq('task_id', taskId)
+        .eq('user_id', user.id);
 
       if (deleteError) throw deleteError;
 
@@ -188,12 +207,13 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
       if (goalIds.length > 0) {
         const taskGoals = goalIds.map(goalId => ({
           task_id: taskId,
-          goal_id: goalId
+          goal_id: goalId,
+          user_id: user.id,
         }));
 
         const { error: insertError } = await supabase
           .from('task_goals')
-          .insert(taskGoals);
+          .insert(taskGoals.map(tg => ({ ...tg, user_id: user.id })));
 
         if (insertError) throw insertError;
       }
@@ -212,6 +232,7 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
           )
         `)
         .eq('id', taskId)
+        .eq('user_id', user.id)
         .single();
 
       if (fetchError) throw fetchError;
@@ -618,7 +639,10 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                             {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
                           </button>
                           <button
-                            onClick={() => deleteTask(task.id)}
+                            onClick={() => {
+                              setShowDeleteModal(true);
+                              setTaskToDelete(task.id);
+                            }}
                             className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition-colors"
                           >
                             Delete
@@ -689,7 +713,10 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                             {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
                           </button>
                           <button
-                            onClick={() => deleteTask(task.id)}
+                            onClick={() => {
+                              setShowDeleteModal(true);
+                              setTaskToDelete(task.id);
+                            }}
                             className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition-colors"
                           >
                             Delete
@@ -760,7 +787,10 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                             {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
                           </button>
                           <button
-                            onClick={() => deleteTask(task.id)}
+                            onClick={() => {
+                              setShowDeleteModal(true);
+                              setTaskToDelete(task.id);
+                            }}
                             className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition-colors"
                           >
                             Delete
@@ -795,6 +825,20 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
         multiple={true}
         selectedGoalIds={editingTaskId ? getCurrentTaskGoalIds() : []}
       />
+
+      {/* Confirmation Modal */}
+      {showDeleteModal && (
+        <ConfirmationModal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setTaskToDelete(null);
+          }}
+          onConfirm={confirmDelete}
+          title="Confirm Deletion"
+          message="Are you sure you want to delete this task?"
+        />
+      )}
     </div>
   );
 } 

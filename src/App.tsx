@@ -7,6 +7,9 @@ import TaskList from './components/TaskList';
 import Schedule from './components/Schedule';
 import GoalManager from './components/GoalManager';
 import Navigation from './components/Navigation';
+import Login from './components/Login';
+
+const ALLOWED_EMAIL = import.meta.env.VITE_ALLOWED_EMAIL;
 
 function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -14,6 +17,19 @@ function App() {
   const [values, setValues] = useState<Value[]>([]);
   const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => {
+      listener?.subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     fetchInitialData();
@@ -140,6 +156,13 @@ function App() {
     };
   };
 
+  if (!user) return <Login />;
+  if (user.email !== ALLOWED_EMAIL) {
+    supabase.auth.signOut();
+    return <div className="text-center mt-20 text-red-500">Not authorized</div>;
+  }
+
+  console.log('User authorized, showing Dashboard');
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900">
@@ -165,6 +188,7 @@ function App() {
                 values={values}
                 timeBlocks={timeBlocks}
                 setTasks={setTasks}
+                user={user}
               />
             } />
             <Route path="/tasks" element={
@@ -173,15 +197,17 @@ function App() {
                 goals={goals}
                 values={values}
                 setTasks={setTasks}
+                user={user}
               />
             } />
-            <Route path="/schedule" element={<Schedule />} />
+            <Route path="/schedule" element={<Schedule user={user} />} />
             <Route path="/goals" element={
               <GoalManager 
                 goals={goals}
                 values={values}
                 setGoals={setGoals}
                 setValues={setValues}
+                user={user}
               />
             } />
           </Routes>
