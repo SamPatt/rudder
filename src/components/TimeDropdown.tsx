@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface TimeDropdownProps {
   value: string; // 'HH:mm' 24h format
   onChange: (newValue: string) => void;

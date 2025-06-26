@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { Task, Goal, TimeBlock, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
 import GoalSelector from './GoalSelector';
-import { getValueIcon } from '../lib/valueIcons';
 import type { Database } from '../types/database';
 type TimeBlockRow = Database['public']['Tables']['time_blocks']['Row'];
 
@@ -428,7 +427,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
 
       setTasks([taskWithGoals, ...tasks]);
       setNewTaskTitle('');
-      setSelectedGoalId('');
       setIsRecurring(false);
       setRecurType('daily');
       setCustomDays([]);
@@ -453,24 +451,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     } catch (error) {
       console.error('Error updating task:', error);
     }
-  };
-
-  const incompleteTasks = tasks.filter(task => !task.is_done);
-
-  const getSelectedGoalNames = () => {
-    if (!selectedGoalId) return '';
-    const goal = goals.find(g => g.id === selectedGoalId);
-    if (!goal) return '';
-    
-    // Find the value for this goal
-    const value = values.find(v => v.id === goal.value_id);
-    const valueIcon = value ? getValueIcon(value.name) : '🎯';
-    return `${valueIcon} ${goal.name}`;
-  };
-
-  const getTaskGoalNames = (task: Task) => {
-    const taskGoals = task.task_goals || [];
-    return taskGoals.map(tg => tg.goal?.name).filter(Boolean).join(', ') || 'No goals';
   };
 
   // Helper functions to organize tasks
@@ -502,10 +482,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
 
   const getTodaysTasks = () => {
     return tasks.filter(task => !task.is_recurring && !task.is_done);
-  };
-
-  const getCompletedTasks = () => {
-    return tasks.filter(task => task.is_done);
   };
 
   const handleDayToggle = (dayValue: number) => {
@@ -550,32 +526,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
       taskTitleInputRef.current.focus();
     }
   }, [showQuickAdd]);
-
-  // Helper function to get all past due blocks for today
-  const getPastDueBlocks = (): TimeBlockRow[] => {
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    
-    return timeBlocks.filter(block => {
-      // Check if scheduled for today
-      if (!isScheduledForToday(block)) return false;
-      
-      // Check if it has a completion status
-      const completion = getCompletionStatus(block.id);
-      if (completion && ['completed', 'failed', 'skipped'].includes(completion.status)) return false;
-      
-      // Check if it's past the end time
-      const [endHour, endMinute] = block.end_time.split(':').map(Number);
-      const blockEndMinutes = endHour * 60 + endMinute;
-      return currentMinutes > blockEndMinutes;
-    });
-  };
-
-  // Update the past due checking to use all past due blocks
-  useEffect(() => {
-    const pastDueBlocks = getPastDueBlocks();
-    // This effect is used to trigger re-renders when past due status changes
-  }, [timeBlocks, completions]);
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -836,18 +786,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                       {task.title}
                     </span>
                   </div>
-                  {getTaskGoalNames(task) && getTaskGoalNames(task) !== 'No goals' && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
-                        <span
-                          key={idx}
-                          className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
-                        >
-                          {goalTag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -887,18 +825,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
                       {task.title}
                     </span>
                   </div>
-                  {getTaskGoalNames(task) && getTaskGoalNames(task) !== 'No goals' && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
-                        <span
-                          key={idx}
-                          className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
-                        >
-                          {goalTag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </div>
               ))}
             </div>

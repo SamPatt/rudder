@@ -300,9 +300,9 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
         case 'weekdays':
           return dayOfWeek >= 1 && dayOfWeek <= 5;
         case 'weekly':
-          return task.custom_days && task.custom_days.includes(dayOfWeek);
+          return task.custom_days ? task.custom_days.includes(dayOfWeek) : false;
         case 'custom':
-          return task.custom_days && task.custom_days.includes(dayOfWeek);
+          return task.custom_days ? task.custom_days.includes(dayOfWeek) : false;
         default:
           return false;
       }
@@ -599,7 +599,7 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                       </div>
                       {getTaskGoalNames(task) && (
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
+                          {getTaskGoalNames(task)!.split(', ').map((goalTag, idx) => (
                             <span
                               key={idx}
                               className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
@@ -670,7 +670,7 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                       </div>
                       {getTaskGoalNames(task) && (
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
+                          {getTaskGoalNames(task)!.split(', ').map((goalTag, idx) => (
                             <span
                               key={idx}
                               className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
@@ -741,7 +741,7 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
                       </div>
                       {getTaskGoalNames(task) && (
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
+                          {getTaskGoalNames(task)!.split(', ').map((goalTag, idx) => (
                             <span
                               key={idx}
                               className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"

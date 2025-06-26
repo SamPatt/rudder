@@ -6,7 +6,7 @@ export interface Value {
 
 export interface Goal {
   id: string;
-  value_id: string;
+  value_id: string | null;
   name: string;
   target_by?: string;
   created_at: string;

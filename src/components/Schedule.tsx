@@ -7,8 +7,6 @@ import TimeDropdown from './TimeDropdown';
 
 type TimeBlock = Database['public']['Tables']['time_blocks']['Row'];
 type ScheduleCompletion = Database['public']['Tables']['schedule_completions']['Row'];
-type Goal = Database['public']['Tables']['goals']['Row'];
-type Value = Database['public']['Tables']['values']['Row'];
 
 // Update the type for TimeBlock to allow optional legacy fields
 type TimeBlockWithLegacy = TimeBlock & {
@@ -344,14 +342,6 @@ export default function Schedule() {
     }
   };
 
-  const getDayLabel = (days: number[]): string => {
-    if (days.length === 0) return 'No days';
-    if (days.length === 7) return 'Daily';
-    if (days.length === 5 && days.every(d => d >= 1 && d <= 5)) return 'Weekdays';
-    
-    return days.map(day => DAYS_OF_WEEK.find(d => d.value === day)?.short).join(', ');
-  };
-
   const isTimeBlockScheduledForDate = (timeBlock: TimeBlockWithLegacy, date: Date): boolean => {
     // Don't show recurring events for dates before they were created
     const checkDate = new Date(date);
@@ -489,13 +479,6 @@ export default function Schedule() {
     fetchTimeBlocks();
   };
 
-  const getWeekDates = (date: Date): Date[] => {
-    // Return only the current day
-    return [date];
-  };
-
-  const weekDates = getWeekDates(currentDate);
-
   const handleGoalSelect = (goalIds: string[]) => {
     const goalId = goalIds.length > 0 ? goalIds[0] : null;
     setSelectedGoalId(goalId);
@@ -520,16 +503,16 @@ export default function Schedule() {
   };
 
   // Helper to group overlapping events and assign columns
-  function groupAndAssignColumns(blocks) {
+  function groupAndAssignColumns(blocks: TimeBlockWithLegacy[]): { [key: string]: TimeBlockWithLegacy & { _col: number; _colCount: number } } {
     // Convert time to minutes for easier comparison
-    function toMinutes(t) {
+    function toMinutes(t: string): number {
       const [h, m] = t.split(':').map(Number);
       return h * 60 + m;
     }
     // Sort by start time
     const sorted = [...blocks].sort((a, b) => toMinutes(a.start_time) - toMinutes(b.start_time));
     const groups = [];
-    let currentGroup = [];
+    let currentGroup: TimeBlockWithLegacy[] = [];
     let lastEnd = -1;
     for (const block of sorted) {
       const start = toMinutes(block.start_time);
@@ -545,13 +528,13 @@ export default function Schedule() {
     }
     if (currentGroup.length) groups.push(currentGroup);
     // Assign columns within each group
-    const result = [];
+    const result: { [key: string]: TimeBlockWithLegacy & { _col: number; _colCount: number } } = {};
     for (const group of groups) {
       if (group.length === 1) {
-        result.push({ ...group[0], _col: 0, _colCount: 1 });
+        result[group[0].id] = { ...group[0], _col: 0, _colCount: 1 };
       } else {
         // For each event, assign a column so that no two overlapping events share a column
-        const cols = [];
+        const cols: number[] = [];
         for (let i = 0; i < group.length; i++) {
           let col = 0;
           while (cols.some((c, idx) => idx !== i && c === col &&
@@ -562,7 +545,7 @@ export default function Schedule() {
           cols[i] = col;
         }
         for (let i = 0; i < group.length; i++) {
-          result.push({ ...group[i], _col: cols[i], _colCount: group.length });
+          result[group[i].id] = { ...group[i], _col: cols[i], _colCount: group.length };
         }
       }
     }
@@ -583,7 +566,7 @@ export default function Schedule() {
   const showEarly = earlyEventExists || currentHour < 6;
   const hourRange = showEarly ? Array.from({ length: 24 }, (_, h) => h) : Array.from({ length: 18 }, (_, h) => h + 6);
 
-  function isPastDue(timeBlock, completion, currentDate) {
+  function isPastDue(timeBlock: TimeBlockWithLegacy, completion: ScheduleCompletion | null, currentDate: Date): boolean {
     if (completion) {
       return false;
     }
@@ -868,7 +851,7 @@ export default function Schedule() {
               });
             // Group and assign columns
             const blocksWithCols = groupAndAssignColumns(visibleBlocks);
-            return blocksWithCols.map((timeBlock, i) => {
+            return Object.values(blocksWithCols).map((timeBlock) => {
               const completion = getCompletionStatus(timeBlock.id, currentDate);
               const isCurrentTime = isTimeBlockCurrent(timeBlock, currentDate);
               const [startHour, startMinute] = timeBlock.start_time.split(':').map(Number);
@@ -933,7 +916,7 @@ export default function Schedule() {
                         completion?.status === 'completed' ? 'text-green-200' :
                         isPastDue(timeBlock, completion, currentDate) ? 'text-gray-800' : 'text-gray-400'
                       }`}>
-                      {timeBlock.task?.title || timeBlock.title} <span className={`text-xs ${isPastDue(timeBlock, completion, currentDate) ? 'text-gray-800' : 'text-gray-400'}`}>({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
+                      {timeBlock.title} <span className={`text-xs ${isPastDue(timeBlock, completion, currentDate) ? 'text-gray-800' : 'text-gray-400'}`}>({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
                     </h4>
                     {isPastDue(timeBlock, completion, currentDate) && (
                       <p className="text-xs mt-1 text-gray-800">Past due</p>
