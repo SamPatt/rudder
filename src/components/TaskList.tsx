@@ -270,13 +270,169 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
     return task.task_goals.map(tg => tg.goal_id);
   };
 
-  // Helper functions to organize tasks
-  const getDailyTasks = () => {
-    return filteredTasks.filter(task => task.is_recurring);
+  // Helper function to check if a task is scheduled for today
+  const isTaskScheduledForToday = (task: Task): boolean => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    
+    // For one-time tasks, check if the date is today AND it's a meaningful due date
+    if (!task.is_recurring && task.date) {
+      const taskDate = new Date(task.date);
+      const todayStr = today.toISOString().split('T')[0];
+      const taskDateStr = taskDate.toISOString().split('T')[0];
+      
+      // Only consider it "today" if the date is today AND it's not a default date
+      // We'll assume that if the task was created today with today's date, it's a default date
+      if (todayStr === taskDateStr) {
+        // Check if this is likely a default date by comparing with created_at
+        const createdDate = new Date(task.created_at);
+        const createdDateStr = createdDate.toISOString().split('T')[0];
+        
+        // If created today and date is today, it's likely a default date, not a "today" task
+        if (createdDateStr === todayStr) {
+          return false;
+        }
+        
+        return true;
+      }
+      
+      return false;
+    }
+    
+    // For one-time tasks without a date, they should not be in "Today"
+    if (!task.is_recurring && !task.date) {
+      return false;
+    }
+    
+    // For recurring tasks, check if today's day of week is in the scheduled days
+    if (task.is_recurring && task.recur_type) {
+      switch (task.recur_type) {
+        case 'daily':
+          return true;
+        case 'weekdays':
+          return dayOfWeek >= 1 && dayOfWeek <= 5;
+        case 'weekly':
+          return task.custom_days && task.custom_days.includes(dayOfWeek);
+        case 'custom':
+          return task.custom_days && task.custom_days.includes(dayOfWeek);
+        default:
+          return false;
+      }
+    }
+    
+    return false;
   };
 
-  const getRegularTasks = () => {
-    return filteredTasks.filter(task => !task.is_recurring);
+  // Helper function to check if a task is due later than today
+  const isTaskUpcoming = (task: Task): boolean => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // For one-time tasks, check if the date is in the future
+    if (!task.is_recurring && task.date) {
+      const taskDate = new Date(task.date);
+      taskDate.setHours(0, 0, 0, 0);
+      
+      // Only consider it "upcoming" if the date is actually in the future
+      // and it's not a default date
+      if (taskDate > today) {
+        // Check if this is likely a default date by comparing with created_at
+        const createdDate = new Date(task.created_at);
+        const createdDateStr = createdDate.toISOString().split('T')[0];
+        const taskDateStr = taskDate.toISOString().split('T')[0];
+        
+        // If created today and date is today, it's likely a default date, not an "upcoming" task
+        if (createdDateStr === taskDateStr && taskDateStr === today.toISOString().split('T')[0]) {
+          return false;
+        }
+        
+        return true;
+      }
+      
+      return false;
+    }
+    
+    // For one-time tasks without a date, they should not be in "Upcoming"
+    if (!task.is_recurring && !task.date) {
+      return false;
+    }
+    
+    // For recurring tasks, check if it's not scheduled for today
+    if (task.is_recurring) {
+      return !isTaskScheduledForToday(task);
+    }
+    
+    return false;
+  };
+
+  // Get tasks that are due today (recurring tasks scheduled for today)
+  const getTodaysTasks = () => {
+    return filteredTasks
+      .filter(task => isTaskScheduledForToday(task))
+      .sort((a, b) => {
+        // Sort completed tasks to the top
+        if (a.is_done && !b.is_done) return -1;
+        if (!a.is_done && b.is_done) return 1;
+        // If both have same completion status, sort by creation date (newest first)
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+  };
+
+  // Get upcoming tasks (recurring tasks not due today, or one-time tasks in the future)
+  const getUpcomingTasks = () => {
+    return filteredTasks
+      .filter(task => isTaskUpcoming(task))
+      .sort((a, b) => {
+        // Sort completed tasks to the top
+        if (a.is_done && !b.is_done) return -1;
+        if (!a.is_done && b.is_done) return 1;
+        // If both have same completion status, sort by creation date (newest first)
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+  };
+
+  // Get to-do tasks (non-recurring tasks without specific due dates)
+  const getTodoTasks = () => {
+    return filteredTasks
+      .filter(task => {
+        // To-do tasks are non-recurring tasks that either:
+        // 1. Don't have a date field, OR
+        // 2. Have a date but it's not a specific due date (e.g., created with today's date as default)
+        if (task.is_recurring) return false;
+        
+        // If the task has a date, check if it's actually a meaningful due date
+        if (task.date) {
+          // If the date is today and it's not a recurring task, it might be a default date
+          // We'll consider it a to-do task if it was created today (indicating it's a default date)
+          const taskDate = new Date(task.date);
+          const today = new Date();
+          const taskDateStr = taskDate.toISOString().split('T')[0];
+          const todayStr = today.toISOString().split('T')[0];
+          
+          // If the date is today, it's likely a default date, so treat as to-do
+          if (taskDateStr === todayStr) {
+            return true;
+          }
+          
+          // If the date is in the past, it's also a to-do task
+          if (taskDate < today) {
+            return true;
+          }
+          
+          // If the date is in the future, it's an upcoming task
+          return false;
+        }
+        
+        // No date field, definitely a to-do task
+        return true;
+      })
+      .sort((a, b) => {
+        // Sort completed tasks to the top
+        if (a.is_done && !b.is_done) return -1;
+        if (!a.is_done && b.is_done) return 1;
+        // If both have same completion status, sort by creation date (newest first)
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
   };
 
   const handleDayToggle = (dayValue: number) => {
@@ -422,15 +578,86 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
           <p className="text-slate-400">No tasks found.</p>
         ) : (
           <div className="space-y-4 sm:space-y-6">
-            {/* Frequent Tasks Section */}
-            {getDailyTasks().length > 0 && (
+            {/* Today Section */}
+            {getTodaysTasks().length > 0 && (
               <div>
                 <h3 className="text-md font-medium text-forest-300 mb-3 flex items-center">
-                  <span className="mr-2">🔄</span>
-                  Frequent
+                  <span className="mr-2">📅</span>
+                  Today
                 </h3>
                 <div className="space-y-2">
-                  {getDailyTasks().map(task => (
+                  {getTodaysTasks().map(task => (
+                    <div key={task.id} className="relative p-3 sm:p-4 border border-slate-600 rounded-lg bg-slate-700 flex flex-col">
+                      {/* Edit icon at top right */}
+                      {!editMode[task.id] && (
+                        <button
+                          onClick={() => setEditMode((prev) => ({ ...prev, [task.id]: true }))}
+                          className="absolute top-2 right-2 text-slate-400 hover:text-forest-400 p-1 rounded focus:outline-none focus:ring-2 focus:ring-forest-500"
+                          title="Edit task"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 3.487a2.25 2.25 0 1 1 3.182 3.182L7.5 19.213l-4.182.465a.75.75 0 0 1-.82-.82l.465-4.182L16.862 3.487z" />
+                          </svg>
+                        </button>
+                      )}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={task.is_done}
+                          onChange={() => toggleTask(task.id, task.is_done)}
+                          className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600 flex-shrink-0"
+                        />
+                        <span className={`flex-1 min-w-0 break-words ${task.is_done ? 'line-through text-slate-500' : 'text-slate-200'}`}>{task.title}</span>
+                      </div>
+                      {getTaskGoalNames(task) && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {getTaskGoalNames(task).split(', ').map((goalTag, idx) => (
+                            <span
+                              key={idx}
+                              className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
+                            >
+                              {goalTag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {editMode[task.id] && (
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <button
+                            onClick={() => handleEditGoal(task.id)}
+                            className="text-forest-400 hover:text-forest-300 text-xs sm:text-sm px-2 py-1 border border-forest-600 rounded hover:bg-forest-900 transition-colors"
+                          >
+                            {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
+                          </button>
+                          <button
+                            onClick={() => deleteTask(task.id)}
+                            className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition-colors"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            onClick={() => setEditMode((prev) => ({ ...prev, [task.id]: false }))}
+                            className="text-slate-400 hover:text-slate-200 text-xs sm:text-sm transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Upcoming Section */}
+            {getUpcomingTasks().length > 0 && (
+              <div>
+                <h3 className="text-md font-medium text-blue-300 mb-3 flex items-center">
+                  <span className="mr-2">🔮</span>
+                  Upcoming
+                </h3>
+                <div className="space-y-2">
+                  {getUpcomingTasks().map(task => (
                     <div key={task.id} className="relative p-3 sm:p-4 border border-slate-600 rounded-lg bg-slate-700 flex flex-col">
                       {/* Edit icon at top right */}
                       {!editMode[task.id] && (
@@ -494,14 +721,14 @@ export default function TaskList({ tasks, goals, values, setTasks }: TaskListPro
             )}
             
             {/* To-do list Section */}
-            {getRegularTasks().length > 0 && (
+            {getTodoTasks().length > 0 && (
               <div>
                 <h3 className="text-md font-medium text-slate-300 mb-3 flex items-center">
                   <span className="mr-2">📝</span>
                   To-do list
                 </h3>
                 <div className="space-y-2">
-                  {getRegularTasks().map(task => (
+                  {getTodoTasks().map(task => (
                     <div key={task.id} className="relative p-3 sm:p-4 border border-slate-600 rounded-lg bg-slate-700 flex flex-col">
                       {/* Edit icon at top right */}
                       {!editMode[task.id] && (

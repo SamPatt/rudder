@@ -492,6 +492,9 @@ export default function Schedule() {
           {
             title: timeBlock.title,
             is_done: true,
+            is_recurring: timeBlock.recur !== 'once',
+            recur_type: timeBlock.recur !== 'once' ? timeBlock.recur : null,
+            custom_days: timeBlock.recur !== 'once' ? timeBlock.custom_days : null,
             date: todayStr,
           },
         ]);

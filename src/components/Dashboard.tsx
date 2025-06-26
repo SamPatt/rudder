@@ -528,18 +528,48 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks }
     const today = new Date();
     const dayOfWeek = today.getDay();
     
-    return tasks.filter(task => {
+    console.log('=== DEBUG: getDailyTasks ===');
+    console.log('Today:', today.toDateString(), 'Day of week:', dayOfWeek);
+    
+    const filteredTasks = tasks.filter(task => {
+      console.log(`Task: "${task.title}"`, {
+        is_recurring: task.is_recurring,
+        is_done: task.is_done,
+        recur_type: task.recur_type,
+        custom_days: task.custom_days
+      });
+      
       // Only show recurring tasks that are not done
-      if (!task.is_recurring || task.is_done) return false;
+      if (!task.is_recurring || task.is_done) {
+        console.log(`  -> Excluded: ${!task.is_recurring ? 'not recurring' : 'is done'}`);
+        return false;
+      }
       
       // Check if the task is scheduled for today based on its recurrence pattern
-      if (task.recur_type === 'daily') return true;
-      if (task.recur_type === 'weekdays' && dayOfWeek >= 1 && dayOfWeek <= 5) return true;
-      if (task.recur_type === 'weekly' && task.custom_days && task.custom_days.includes(dayOfWeek)) return true;
-      if (task.recur_type === 'custom' && task.custom_days && task.custom_days.includes(dayOfWeek)) return true;
+      let isScheduledToday = false;
+      if (task.recur_type === 'daily') {
+        isScheduledToday = true;
+        console.log(`  -> Daily task: scheduled for today`);
+      } else if (task.recur_type === 'weekdays' && dayOfWeek >= 1 && dayOfWeek <= 5) {
+        isScheduledToday = true;
+        console.log(`  -> Weekday task: scheduled for today (${dayOfWeek})`);
+      } else if (task.recur_type === 'weekly' && task.custom_days && task.custom_days.includes(dayOfWeek)) {
+        isScheduledToday = true;
+        console.log(`  -> Weekly task: scheduled for today (${dayOfWeek} in ${task.custom_days})`);
+      } else if (task.recur_type === 'custom' && task.custom_days && task.custom_days.includes(dayOfWeek)) {
+        isScheduledToday = true;
+        console.log(`  -> Custom task: scheduled for today (${dayOfWeek} in ${task.custom_days})`);
+      } else {
+        console.log(`  -> Not scheduled for today`);
+      }
       
-      return false;
+      return isScheduledToday;
     });
+    
+    console.log('Final filtered tasks:', filteredTasks.map(t => t.title));
+    console.log('=== END DEBUG ===');
+    
+    return filteredTasks;
   };
 
   const getTodaysTasks = () => {
