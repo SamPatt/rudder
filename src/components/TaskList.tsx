@@ -154,23 +154,28 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
 
   const toggleTask = async (taskId: string, currentStatus: boolean) => {
     try {
+      const nowUTC = new Date().toISOString();
+      // If marking as completed, set completed_at to now (UTC)
+      // If marking as incomplete, set completed_at to null
+      const updateData = currentStatus 
+        ? { is_done: false, completed_at: null } 
+        : { is_done: true, completed_at: nowUTC, date: nowUTC.split('T')[0] };
+      
       const { error } = await supabase
         .from('tasks')
-        .update({ is_done: !currentStatus })
+        .update(updateData)
         .eq('id', taskId)
         .eq('user_id', user.id);
 
       if (error) throw error;
 
       setTasks(tasks.map(task => 
-        task.id === taskId ? { ...task, is_done: !currentStatus } : task
+        task.id === taskId ? { ...task, ...updateData } : task
       ));
 
       // Also update the corresponding time block completion status
       const task = tasks.find(t => t.id === taskId);
       if (task) {
-        const today = new Date().toISOString().split('T')[0];
-        
         // Find time blocks with matching title
         const { data: timeBlocks, error: timeBlocksError } = await supabase
           .from('time_blocks')
@@ -185,6 +190,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
 
           for (const timeBlock of matchingTimeBlocks) {
             // Check existing completion
+            const today = new Date().toISOString().split('T')[0];
             const { data: existingCompletions, error: completionFetchError } = await supabase
               .from('schedule_completions')
               .select('*')
@@ -439,13 +445,17 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
 
   // Get tasks that are due today (recurring tasks scheduled for today)
   const getTodaysTasks = () => {
+    const todayLocal = new Date().toLocaleDateString('en-CA');
     return filteredTasks
-      .filter(task => isTaskScheduledForToday(task))
+      .filter(task => {
+        if (!isTaskScheduledForToday(task)) return false;
+        // For completed tasks, only show if completed_at is today (local)
+        if (task.is_done && getTaskCompletionDate(task) !== todayLocal) return false;
+        return true;
+      })
       .sort((a, b) => {
-        // Sort completed tasks to the top
-        if (a.is_done && !b.is_done) return -1;
-        if (!a.is_done && b.is_done) return 1;
-        // If both have same completion status, sort by creation date (newest first)
+        if (!a.is_done && b.is_done) return -1;
+        if (a.is_done && !b.is_done) return 1;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   };
@@ -453,14 +463,12 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
   // Get upcoming tasks (recurring tasks not due today, or one-time tasks in the future)
   const getUpcomingTasks = () => {
     return filteredTasks
-      .filter(task => isTaskUpcoming(task))
-      .sort((a, b) => {
-        // Sort completed tasks to the top
-        if (a.is_done && !b.is_done) return -1;
-        if (!a.is_done && b.is_done) return 1;
-        // If both have same completion status, sort by creation date (newest first)
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      });
+      .filter(task => {
+        if (!isTaskUpcoming(task)) return false;
+        if (task.is_done) return false;
+        return true;
+      })
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   };
 
   // Get to-do tasks (non-recurring tasks without specific due dates)
@@ -499,12 +507,53 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
         return true;
       })
       .sort((a, b) => {
-        // Sort completed tasks to the top
-        if (a.is_done && !b.is_done) return -1;
-        if (!a.is_done && b.is_done) return 1;
+        // Sort incomplete tasks first, then completed tasks
+        if (!a.is_done && b.is_done) return -1;
+        if (a.is_done && !b.is_done) return 1;
         // If both have same completion status, sort by creation date (newest first)
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
+  };
+
+  // Helper function to get the actual completion date for a task
+  const getTaskCompletionDate = (task: Task): string | null => {
+    if (!task.is_done || !task.completed_at) return null;
+    // Return local date string from UTC timestamp
+    return new Date(task.completed_at).toLocaleDateString('en-CA'); // YYYY-MM-DD
+  };
+
+  // Get archived tasks (completed tasks from previous days)
+  const getArchivedTasks = () => {
+    const todayLocal = new Date().toLocaleDateString('en-CA');
+    
+    // Get all completed tasks that were completed on a date other than today
+    const archivedTasks = filteredTasks
+      .filter(task => {
+        if (!task.is_done || !task.completed_at) return false;
+        
+        const completionDate = getTaskCompletionDate(task);
+        if (!completionDate) return false;
+        
+        return completionDate !== todayLocal;
+      })
+      .sort((a, b) => {
+        // Sort by completion date (most recent first)
+        const dateA = getTaskCompletionDate(a) || a.created_at.split('T')[0];
+        const dateB = getTaskCompletionDate(b) || b.created_at.split('T')[0];
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
+      });
+
+    // Group by date
+    const groupedByDate: { [date: string]: Task[] } = {};
+    archivedTasks.forEach(task => {
+      const date = getTaskCompletionDate(task) || task.created_at.split('T')[0];
+      if (!groupedByDate[date]) {
+        groupedByDate[date] = [];
+      }
+      groupedByDate[date].push(task);
+    });
+
+    return groupedByDate;
   };
 
   const handleDayToggle = (dayValue: number) => {
@@ -866,6 +915,96 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
                           </button>
                         </div>
                       )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Archive Section */}
+            {Object.keys(getArchivedTasks()).length > 0 && (
+              <div>
+                <h3 className="text-md font-medium text-amber-300 mb-3 flex items-center">
+                  <span className="mr-2">📚</span>
+                  Archive
+                </h3>
+                <div className="space-y-4">
+                  {Object.entries(getArchivedTasks()).map(([date, tasks]) => (
+                    <div key={date} className="border border-slate-600 rounded-lg bg-slate-700 overflow-hidden">
+                      <div className="bg-slate-800 px-3 py-2 border-b border-slate-600">
+                        <h4 className="text-sm font-medium text-slate-300">
+                          {new Date(date).toLocaleDateString('en-US', { 
+                            weekday: 'long', 
+                            year: 'numeric', 
+                            month: 'long', 
+                            day: 'numeric' 
+                          })}
+                        </h4>
+                      </div>
+                      <div className="p-3 space-y-2">
+                        {tasks.map(task => (
+                          <div key={task.id} className="relative p-3 border border-slate-600 rounded-lg bg-slate-800 flex flex-col">
+                            {/* Edit icon at top right */}
+                            {!editMode[task.id] && (
+                              <button
+                                onClick={() => setEditMode((prev) => ({ ...prev, [task.id]: true }))}
+                                className="absolute top-2 right-2 text-slate-400 hover:text-forest-400 p-1 rounded focus:outline-none focus:ring-2 focus:ring-forest-500"
+                                title="Edit task"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 3.487a2.25 2.25 0 1 1 3.182 3.182L7.5 19.213l-4.182.465a.75.75 0 0 1-.82-.82l.465-4.182L16.862 3.487z" />
+                                </svg>
+                              </button>
+                            )}
+                            <div className="flex items-center gap-3 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={task.is_done}
+                                onChange={() => toggleTask(task.id, task.is_done)}
+                                className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600 flex-shrink-0"
+                              />
+                              <span className={`flex-1 min-w-0 break-words ${task.is_done ? 'line-through text-slate-500' : 'text-slate-200'}`}>{task.title}</span>
+                            </div>
+                            {getTaskGoalNames(task) && (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {getTaskGoalNames(task)!.split(', ').map((goalTag, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
+                                  >
+                                    {goalTag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {editMode[task.id] && (
+                              <div className="flex flex-wrap items-center gap-2 mt-2">
+                                <button
+                                  onClick={() => handleEditGoal(task.id)}
+                                  className="text-forest-400 hover:text-forest-300 text-xs sm:text-sm px-2 py-1 border border-forest-600 rounded hover:bg-forest-900 transition-colors"
+                                >
+                                  {getTaskGoalNames(task) ? 'Change Goals' : 'Add Goals'}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setShowDeleteModal(true);
+                                    setTaskToDelete(task.id);
+                                  }}
+                                  className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition-colors"
+                                >
+                                  Delete
+                                </button>
+                                <button
+                                  onClick={() => setEditMode((prev) => ({ ...prev, [task.id]: false }))}
+                                  className="text-slate-400 hover:text-slate-200 text-xs sm:text-sm transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>

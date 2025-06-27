@@ -193,7 +193,6 @@ function App() {
     const completionsSubscription = supabase
       .channel('completions_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_completions' }, (payload) => {
-        console.log('Completions subscription received:', payload);
         if (payload.eventType === 'INSERT') {
           setCompletions(prev => [payload.new as ScheduleCompletion, ...prev]);
         } else if (payload.eventType === 'UPDATE') {

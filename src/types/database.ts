@@ -31,6 +31,7 @@ export interface Task {
   custom_days?: number[] | null;
   date: string;
   created_at: string;
+  completed_at?: string | null;
   task_goals?: TaskGoal[];
 }
 
@@ -102,6 +103,7 @@ export interface Database {
           custom_days: number[] | null;
           date: string;
           created_at: string;
+          completed_at: string | null;
         };
         Insert: {
           id?: string;
@@ -113,6 +115,7 @@ export interface Database {
           custom_days?: number[] | null;
           date?: string;
           created_at?: string;
+          completed_at?: string | null;
         };
         Update: {
           id?: string;
@@ -124,6 +127,7 @@ export interface Database {
           custom_days?: number[] | null;
           date?: string;
           created_at?: string;
+          completed_at?: string | null;
         };
         Relationships: [];
       };

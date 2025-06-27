@@ -114,7 +114,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
   const getCompletionStatus = (timeBlockId: string): ScheduleCompletion | null => {
     const today = new Date().toISOString().split('T')[0];
     const found = completions.find(c => c.time_block_id === timeBlockId && c.date === today);
-    console.log('getCompletionStatus:', { timeBlockId, today, completionsCount: completions.length, found });
     return found || null;
   };
 
@@ -198,20 +197,15 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
     const today = new Date().toISOString().split('T')[0];
     const existingCompletion = getCompletionStatus(timeBlockId);
     
-    console.log('Handling completion:', { timeBlockId, status, existingCompletion, today });
-    
     // Optimistic update - immediately update the UI
     if (existingCompletion && existingCompletion.status === status) {
       // Toggle off - remove the completion
-      console.log('Optimistically removing completion');
       setCompletions(prev => prev.filter(c => c.id !== existingCompletion.id));
     } else if (existingCompletion) {
       // Update existing completion to new status
-      console.log('Optimistically updating completion to:', status);
       setCompletions(prev => prev.map(c => c.id === existingCompletion.id ? { ...c, status } : c));
     } else {
       // Create new completion
-      console.log('Optimistically creating new completion for:', timeBlockId, status);
       const optimisticCompletion = {
         id: `temp-${Date.now()}`, // Temporary ID
         time_block_id: timeBlockId,
@@ -225,42 +219,36 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
     
     // If clicking the same status that's already active, reset it (delete the completion)
     if (existingCompletion && existingCompletion.status === status) {
-      console.log('Deleting existing completion:', existingCompletion.id);
       const { error } = await supabase
         .from('schedule_completions')
         .delete()
         .eq('id', existingCompletion.id)
         .eq('user_id', user.id);
       if (error) {
-        console.error('Error deleting completion:', error);
         // Revert optimistic update on error
         setCompletions(prev => [...prev, existingCompletion]);
         return;
       }
     } else if (existingCompletion) {
       // Update existing completion to new status
-      console.log('Updating existing completion:', existingCompletion.id, 'to', status);
       const { error } = await supabase
         .from('schedule_completions')
         .update({ status })
         .eq('id', existingCompletion.id)
         .eq('user_id', user.id);
       if (error) {
-        console.error('Error updating completion:', error);
         // Revert optimistic update on error
         setCompletions(prev => prev.map(c => c.id === existingCompletion.id ? existingCompletion : c));
         return;
       }
     } else {
       // Create new completion
-      console.log('Creating new completion for:', timeBlockId, status);
       const { data, error } = await supabase
         .from('schedule_completions')
         .insert([{ time_block_id: timeBlockId, date: today, status, user_id: user.id }])
         .select()
         .single();
       if (error) {
-        console.error('Error creating completion:', error);
         // Revert optimistic update on error
         setCompletions(prev => prev.filter(c => !c.id.startsWith('temp-')));
         return;
