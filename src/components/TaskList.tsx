@@ -165,6 +165,68 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
       setTasks(tasks.map(task => 
         task.id === taskId ? { ...task, is_done: !currentStatus } : task
       ));
+
+      // Also update the corresponding time block completion status
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Find time blocks with matching title
+        const { data: timeBlocks, error: timeBlocksError } = await supabase
+          .from('time_blocks')
+          .select('*')
+          .eq('user_id', user.id);
+        
+        if (!timeBlocksError && timeBlocks) {
+          const matchingTimeBlocks = timeBlocks.filter(tb => 
+            tb.title === task.title || 
+            tb.title === task.title.replace(/ \(\d{2}:\d{2} - \d{2}:\d{2}\)/, '')
+          );
+
+          for (const timeBlock of matchingTimeBlocks) {
+            // Check existing completion
+            const { data: existingCompletions, error: completionFetchError } = await supabase
+              .from('schedule_completions')
+              .select('*')
+              .eq('time_block_id', timeBlock.id)
+              .eq('date', today)
+              .eq('user_id', user.id);
+            
+            if (!completionFetchError) {
+              const existingCompletion = existingCompletions?.[0];
+              
+              if (!currentStatus) {
+                // Task is being marked as completed, so mark time block as completed
+                if (!existingCompletion || existingCompletion.status !== 'completed') {
+                  const { error: completionError } = await supabase
+                    .from('schedule_completions')
+                    .upsert([{ 
+                      time_block_id: timeBlock.id, 
+                      date: today, 
+                      status: 'completed',
+                      user_id: user.id 
+                    }]);
+                  if (completionError) {
+                    console.error('Error updating time block completion:', completionError);
+                  }
+                }
+              } else {
+                // Task is being marked as incomplete, so remove time block completion
+                if (existingCompletion && existingCompletion.status === 'completed') {
+                  const { error: completionError } = await supabase
+                    .from('schedule_completions')
+                    .delete()
+                    .eq('id', existingCompletion.id)
+                    .eq('user_id', user.id);
+                  if (completionError) {
+                    console.error('Error removing time block completion:', completionError);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Error updating task:', error);
     }

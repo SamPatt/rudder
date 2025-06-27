@@ -12,11 +12,22 @@ import Login from './components/Login';
 
 const ALLOWED_EMAIL = import.meta.env.VITE_ALLOWED_EMAIL;
 
+// Type for schedule completions
+type ScheduleCompletion = {
+  id: string;
+  time_block_id: string;
+  date: string;
+  status: 'completed' | 'skipped' | 'failed';
+  created_at: string;
+  user_id: string;
+};
+
 function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [values, setValues] = useState<Value[]>([]);
   const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([]);
+  const [completions, setCompletions] = useState<ScheduleCompletion[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
 
@@ -39,7 +50,7 @@ function App() {
 
   const fetchInitialData = async () => {
     try {
-      const [tasksResult, goalsResult, valuesResult, timeBlocksResult] = await Promise.all([
+      const [tasksResult, goalsResult, valuesResult, timeBlocksResult, completionsResult] = await Promise.all([
         supabase.from('tasks').select(`
           *,
           task_goals (
@@ -52,7 +63,8 @@ function App() {
         `).order('created_at', { ascending: false }),
         supabase.from('goals').select('*, value:values(*)').order('created_at', { ascending: false }),
         supabase.from('values').select('*').order('created_at', { ascending: false }),
-        supabase.from('time_blocks').select('*, goal:goals(*)').order('start_time', { ascending: true })
+        supabase.from('time_blocks').select('*, goal:goals(*)').order('start_time', { ascending: true }),
+        supabase.from('schedule_completions').select('*').order('created_at', { ascending: false })
       ]);
 
       if (tasksResult.data) setTasks(tasksResult.data);
@@ -61,12 +73,16 @@ function App() {
       if (timeBlocksResult.data) {
         setTimeBlocks(timeBlocksResult.data);
       }
+      if (completionsResult.data) {
+        setCompletions(completionsResult.data);
+      }
       
       // Log any errors
       if (tasksResult.error) console.error('Error fetching tasks:', tasksResult.error);
       if (goalsResult.error) console.error('Error fetching goals:', goalsResult.error);
       if (valuesResult.error) console.error('Error fetching values:', valuesResult.error);
       if (timeBlocksResult.error) console.error('Error fetching time blocks:', timeBlocksResult.error);
+      if (completionsResult.error) console.error('Error fetching completions:', completionsResult.error);
     } catch (error) {
       console.error('Error fetching initial data:', error);
     } finally {
@@ -150,10 +166,65 @@ function App() {
       })
       .subscribe();
 
+    // Subscribe to time_blocks changes
+    const timeBlocksSubscription = supabase
+      .channel('time_blocks_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_blocks' }, async (payload) => {
+        if (payload.eventType === 'INSERT') {
+          // Fetch the time block with its goal
+          const { data: timeBlockWithGoal } = await supabase
+            .from('time_blocks')
+            .select('*, goal:goals(*)')
+            .eq('id', payload.new.id)
+            .single();
+          
+          if (timeBlockWithGoal) {
+            setTimeBlocks(prev => [...prev, timeBlockWithGoal as TimeBlock]);
+          }
+        } else if (payload.eventType === 'UPDATE') {
+          setTimeBlocks(prev => prev.map(block => block.id === payload.new.id ? payload.new as TimeBlock : block));
+        } else if (payload.eventType === 'DELETE') {
+          setTimeBlocks(prev => prev.filter(block => block.id !== payload.old.id));
+        }
+      })
+      .subscribe();
+
+    // Subscribe to schedule_completions changes
+    const completionsSubscription = supabase
+      .channel('completions_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_completions' }, (payload) => {
+        console.log('Completions subscription received:', payload);
+        if (payload.eventType === 'INSERT') {
+          setCompletions(prev => [payload.new as ScheduleCompletion, ...prev]);
+        } else if (payload.eventType === 'UPDATE') {
+          setCompletions(prev => prev.map(completion => completion.id === payload.new.id ? payload.new as ScheduleCompletion : completion));
+        } else if (payload.eventType === 'DELETE') {
+          setCompletions(prev => prev.filter(completion => completion.id !== payload.old.id));
+        }
+      })
+      .subscribe();
+
+    // Subscribe to values changes
+    const valuesSubscription = supabase
+      .channel('values_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'values' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setValues(prev => [payload.new as Value, ...prev]);
+        } else if (payload.eventType === 'UPDATE') {
+          setValues(prev => prev.map(value => value.id === payload.new.id ? payload.new as Value : value));
+        } else if (payload.eventType === 'DELETE') {
+          setValues(prev => prev.filter(value => value.id !== payload.old.id));
+        }
+      })
+      .subscribe();
+
     return () => {
       supabase.removeChannel(tasksSubscription);
       supabase.removeChannel(taskGoalsSubscription);
       supabase.removeChannel(goalsSubscription);
+      supabase.removeChannel(timeBlocksSubscription);
+      supabase.removeChannel(completionsSubscription);
+      supabase.removeChannel(valuesSubscription);
     };
   };
 
@@ -188,7 +259,9 @@ function App() {
                 goals={goals} 
                 values={values}
                 timeBlocks={timeBlocks}
+                completions={completions}
                 setTasks={setTasks}
+                setCompletions={setCompletions}
                 user={user}
               />
             } />
@@ -201,7 +274,12 @@ function App() {
                 user={user}
               />
             } />
-            <Route path="/schedule" element={<Schedule user={user} />} />
+            <Route path="/schedule" element={
+              <Schedule 
+                user={user}
+                completions={completions}
+              />
+            } />
             <Route path="/goals" element={
               <GoalManager 
                 goals={goals}

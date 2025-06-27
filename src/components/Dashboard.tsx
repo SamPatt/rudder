@@ -12,7 +12,9 @@ interface DashboardProps {
   goals: Goal[];
   values: Value[];
   timeBlocks: TimeBlock[];
+  completions: any[];
   setTasks: (tasks: Task[]) => void;
+  setCompletions: React.Dispatch<React.SetStateAction<any[]>>;
   user: User;
 }
 
@@ -24,8 +26,7 @@ type ScheduleCompletion = {
   created_at: string;
 };
 
-export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks, user }: DashboardProps) {
-  const [completions, setCompletions] = useState<ScheduleCompletion[]>([]);
+export default function Dashboard({ tasks, goals, values, timeBlocks, completions, setTasks, setCompletions, user }: DashboardProps) {
   const [completionsLoading, setCompletionsLoading] = useState(true);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -42,7 +43,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks, 
   const taskTitleInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetchCompletions();
     updateCurrentTimeBlock();
     const interval = setInterval(() => {
       updateCurrentTimeBlock();
@@ -63,21 +63,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks, 
     };
     fetchTasks();
   }, []);
-
-  const fetchCompletions = async () => {
-    setCompletionsLoading(true);
-    const { data, error } = await supabase
-      .from('schedule_completions')
-      .select('*');
-    
-    if (error) {
-      console.error('Error fetching completions:', error);
-      setCompletions([]);
-    } else {
-      setCompletions(data || []);
-    }
-    setCompletionsLoading(false);
-  };
 
   const updateCurrentTimeBlock = () => {
     const now = new Date();
@@ -128,7 +113,9 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks, 
 
   const getCompletionStatus = (timeBlockId: string): ScheduleCompletion | null => {
     const today = new Date().toISOString().split('T')[0];
-    return completions.find(c => c.time_block_id === timeBlockId && c.date === today) || null;
+    const found = completions.find(c => c.time_block_id === timeBlockId && c.date === today);
+    console.log('getCompletionStatus:', { timeBlockId, today, completionsCount: completions.length, found });
+    return found || null;
   };
 
   // Helper function to get the days a time block is scheduled for
@@ -211,53 +198,115 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks, 
     const today = new Date().toISOString().split('T')[0];
     const existingCompletion = getCompletionStatus(timeBlockId);
     
+    console.log('Handling completion:', { timeBlockId, status, existingCompletion, today });
+    
+    // Optimistic update - immediately update the UI
+    if (existingCompletion && existingCompletion.status === status) {
+      // Toggle off - remove the completion
+      console.log('Optimistically removing completion');
+      setCompletions(prev => prev.filter(c => c.id !== existingCompletion.id));
+    } else if (existingCompletion) {
+      // Update existing completion to new status
+      console.log('Optimistically updating completion to:', status);
+      setCompletions(prev => prev.map(c => c.id === existingCompletion.id ? { ...c, status } : c));
+    } else {
+      // Create new completion
+      console.log('Optimistically creating new completion for:', timeBlockId, status);
+      const optimisticCompletion = {
+        id: `temp-${Date.now()}`, // Temporary ID
+        time_block_id: timeBlockId,
+        date: today,
+        status,
+        created_at: new Date().toISOString(),
+        user_id: user.id
+      };
+      setCompletions(prev => [optimisticCompletion, ...prev]);
+    }
+    
     // If clicking the same status that's already active, reset it (delete the completion)
     if (existingCompletion && existingCompletion.status === status) {
+      console.log('Deleting existing completion:', existingCompletion.id);
       const { error } = await supabase
         .from('schedule_completions')
         .delete()
-        .eq('id', existingCompletion.id);
+        .eq('id', existingCompletion.id)
+        .eq('user_id', user.id);
       if (error) {
         console.error('Error deleting completion:', error);
+        // Revert optimistic update on error
+        setCompletions(prev => [...prev, existingCompletion]);
         return;
       }
     } else if (existingCompletion) {
       // Update existing completion to new status
+      console.log('Updating existing completion:', existingCompletion.id, 'to', status);
       const { error } = await supabase
         .from('schedule_completions')
         .update({ status })
-        .eq('id', existingCompletion.id);
+        .eq('id', existingCompletion.id)
+        .eq('user_id', user.id);
       if (error) {
         console.error('Error updating completion:', error);
+        // Revert optimistic update on error
+        setCompletions(prev => prev.map(c => c.id === existingCompletion.id ? existingCompletion : c));
         return;
       }
     } else {
       // Create new completion
-      const { error } = await supabase
+      console.log('Creating new completion for:', timeBlockId, status);
+      const { data, error } = await supabase
         .from('schedule_completions')
-        .insert([{ time_block_id: timeBlockId, date: today, status }]);
+        .insert([{ time_block_id: timeBlockId, date: today, status, user_id: user.id }])
+        .select()
+        .single();
       if (error) {
         console.error('Error creating completion:', error);
+        // Revert optimistic update on error
+        setCompletions(prev => prev.filter(c => !c.id.startsWith('temp-')));
         return;
+      }
+      // Replace temporary ID with real ID
+      if (data) {
+        setCompletions(prev => prev.map(c => c.id.startsWith('temp-') ? data : c));
       }
     }
     
     if (status === 'completed') {
       const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
       if (timeBlock) {
-        const { error: taskError } = await supabase
+        // First, try to find an existing task with the same title for today
+        const { data: existingTasks, error: taskFetchError } = await supabase
           .from('tasks')
-          .insert([{ 
-            title: `${timeBlock.title} (${timeBlock.start_time} - ${timeBlock.end_time})`, 
-            is_done: true,
-            date: today
-          }]);
-        if (taskError) {
-          console.error('Error creating task:', taskError);
+          .select('*')
+          .eq('title', timeBlock.title)
+          .eq('date', today)
+          .eq('user_id', user.id);
+        
+        if (!taskFetchError && existingTasks && existingTasks.length > 0) {
+          // Update existing task to completed
+          const taskId = existingTasks[0].id;
+          await supabase
+            .from('tasks')
+            .update({ is_done: true })
+            .eq('id', taskId)
+            .eq('user_id', user.id);
+        } else {
+          // Create a new task for today
+          const { error: taskError } = await supabase
+            .from('tasks')
+            .insert([{ 
+              title: `${timeBlock.title} (${timeBlock.start_time} - ${timeBlock.end_time})`, 
+              is_done: true,
+              date: today,
+              user_id: user.id,
+            }]);
+          if (taskError) {
+            console.error('Error creating task:', taskError);
+          }
         }
       }
     }
-    fetchCompletions();
+    // Note: Real-time subscriptions will handle updating the completions state
   };
 
   const getBlockStatusColor = (timeBlock: TimeBlockRow) => {
@@ -445,13 +494,59 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, setTasks, 
       const { error } = await supabase
         .from('tasks')
         .update({ is_done: !currentStatus })
-        .eq('id', taskId);
+        .eq('id', taskId)
+        .eq('user_id', user.id);
 
       if (error) throw error;
 
       setTasks(tasks.map(task => 
         task.id === taskId ? { ...task, is_done: !currentStatus } : task
       ));
+
+      // Also update the corresponding time block completion status
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Find time blocks with matching title
+        const matchingTimeBlocks = timeBlocks.filter(tb => 
+          tb.title === task.title || 
+          tb.title === task.title.replace(/ \(\d{2}:\d{2} - \d{2}:\d{2}\)/, '')
+        );
+
+        for (const timeBlock of matchingTimeBlocks) {
+          const existingCompletion = getCompletionStatus(timeBlock.id);
+          
+          if (!currentStatus) {
+            // Task is being marked as completed, so mark time block as completed
+            if (!existingCompletion || existingCompletion.status !== 'completed') {
+              const { error: completionError } = await supabase
+                .from('schedule_completions')
+                .upsert([{ 
+                  time_block_id: timeBlock.id, 
+                  date: today, 
+                  status: 'completed',
+                  user_id: user.id 
+                }]);
+              if (completionError) {
+                console.error('Error updating time block completion:', completionError);
+              }
+            }
+          } else {
+            // Task is being marked as incomplete, so remove time block completion
+            if (existingCompletion && existingCompletion.status === 'completed') {
+              const { error: completionError } = await supabase
+                .from('schedule_completions')
+                .delete()
+                .eq('id', existingCompletion.id)
+                .eq('user_id', user.id);
+              if (completionError) {
+                console.error('Error removing time block completion:', completionError);
+              }
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Error updating task:', error);
     }

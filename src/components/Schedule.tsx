@@ -19,6 +19,7 @@ type TimeBlockWithLegacy = TimeBlock & {
 
 interface ScheduleProps {
   user: User;
+  completions: any[];
 }
 
 const DAYS_OF_WEEK = [
@@ -39,9 +40,8 @@ const RECURRENCE_OPTIONS = [
   { value: 'once', label: 'One Time Event' },
 ];
 
-export default function Schedule({ user }: ScheduleProps) {
+export default function Schedule({ user, completions }: ScheduleProps) {
   const [timeBlocks, setTimeBlocks] = useState<TimeBlockWithLegacy[]>([]);
-  const [completions, setCompletions] = useState<ScheduleCompletion[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingBlock, setEditingBlock] = useState<TimeBlockWithLegacy | null>(null);
   const [formData, setFormData] = useState({
@@ -68,7 +68,6 @@ export default function Schedule({ user }: ScheduleProps) {
 
   useEffect(() => {
     fetchTimeBlocks();
-    fetchCompletions();
     fetchGoals();
     fetchValues();
   }, []);
@@ -134,19 +133,6 @@ export default function Schedule({ user }: ScheduleProps) {
         };
       });
       setTimeBlocks(convertedData);
-    }
-  };
-
-  const fetchCompletions = async () => {
-    const { data, error } = await supabase
-      .from('schedule_completions')
-      .select('*')
-      .eq('user_id', user.id);
-    
-    if (error) {
-      console.error('Error fetching completions:', error);
-    } else {
-      setCompletions(data || []);
     }
   };
 
@@ -420,16 +406,14 @@ export default function Schedule({ user }: ScheduleProps) {
     return now >= startTime && now <= endTime;
   };
 
-  const getCompletionStatus = (timeBlockId: string, date: Date): ScheduleCompletion | null => {
-    const dateStr = date.toISOString().split('T')[0];
-    return completions.find(c => c.time_block_id === timeBlockId && c.date === dateStr) || null;
+  const getCompletionStatus = (timeBlockId: string): ScheduleCompletion | null => {
+    const today = new Date().toISOString().split('T')[0];
+    return completions.find(c => c.time_block_id === timeBlockId && c.date === today) || null;
   };
 
-  const handleCompletion = async (timeBlockId: string, date: Date, status: 'completed' | 'skipped' | 'failed') => {
-    const dateStr = date.toISOString().split('T')[0];
-    
-    // Check if completion already exists
-    const existingCompletion = getCompletionStatus(timeBlockId, date);
+  const handleCompletion = async (timeBlockId: string, status: 'completed' | 'skipped' | 'failed') => {
+    const today = new Date().toISOString().split('T')[0];
+    const existingCompletion = getCompletionStatus(timeBlockId);
     
     // If clicking the same status that's already active, reset it (delete the completion)
     if (existingCompletion && existingCompletion.status === status) {
@@ -438,7 +422,6 @@ export default function Schedule({ user }: ScheduleProps) {
         .delete()
         .eq('id', existingCompletion.id)
         .eq('user_id', user.id);
-      
       if (error) {
         console.error('Error deleting completion:', error);
         return;
@@ -450,7 +433,6 @@ export default function Schedule({ user }: ScheduleProps) {
         .update({ status })
         .eq('id', existingCompletion.id)
         .eq('user_id', user.id);
-      
       if (error) {
         console.error('Error updating completion:', error);
         return;
@@ -459,47 +441,49 @@ export default function Schedule({ user }: ScheduleProps) {
       // Create new completion
       const { error } = await supabase
         .from('schedule_completions')
-        .insert([{ time_block_id: timeBlockId, date: dateStr, status, user_id: user.id }]);
-      
+        .insert([{ time_block_id: timeBlockId, date: today, status, user_id: user.id }]);
       if (error) {
         console.error('Error creating completion:', error);
         return;
       }
     }
-
-    // Only mark/create today's task as done when setting to completed
-    const todayStr = date.toISOString().split('T')[0];
-    const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
-    if (status === 'completed' && timeBlock) {
-      // Check if a task for this time block and date already exists
-      const { data: existingTasks, error: taskFetchError } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('title', timeBlock.title)
-        .eq('date', todayStr)
-        .eq('user_id', user.id);
-      if (!taskFetchError && existingTasks && existingTasks.length > 0) {
-        // Mark as done
-        const taskId = existingTasks[0].id;
-        await supabase.from('tasks').update({ is_done: true }).eq('id', taskId).eq('user_id', user.id);
-      } else {
-        // Create a new task for today
-        await supabase.from('tasks').insert([
-          {
-            title: timeBlock.title,
-            is_done: true,
-            is_recurring: timeBlock.recur !== 'once',
-            recur_type: timeBlock.recur !== 'once' ? timeBlock.recur : null,
-            custom_days: timeBlock.recur !== 'once' ? timeBlock.custom_days : null,
-            date: todayStr,
-            user_id: user.id,
-          },
-        ]);
+    
+    if (status === 'completed') {
+      const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
+      if (timeBlock) {
+        // First, try to find an existing task with the same title for today
+        const { data: existingTasks, error: taskFetchError } = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('title', timeBlock.title)
+          .eq('date', today)
+          .eq('user_id', user.id);
+        
+        if (!taskFetchError && existingTasks && existingTasks.length > 0) {
+          // Update existing task to completed
+          const taskId = existingTasks[0].id;
+          await supabase
+            .from('tasks')
+            .update({ is_done: true })
+            .eq('id', taskId)
+            .eq('user_id', user.id);
+        } else {
+          // Create a new task for today
+          const { error: taskError } = await supabase
+            .from('tasks')
+            .insert([{ 
+              title: `${timeBlock.title} (${timeBlock.start_time} - ${timeBlock.end_time})`, 
+              is_done: true,
+              date: today,
+              user_id: user.id,
+            }]);
+          if (taskError) {
+            console.error('Error creating task:', taskError);
+          }
+        }
       }
     }
-
-    fetchCompletions();
-    fetchTimeBlocks();
+    // Note: Real-time subscriptions will handle updating the completions state
   };
 
   const handleGoalSelect = (goalIds: string[]) => {
@@ -875,7 +859,7 @@ export default function Schedule({ user }: ScheduleProps) {
             // Group and assign columns
             const blocksWithCols = groupAndAssignColumns(visibleBlocks);
             return Object.values(blocksWithCols).map((timeBlock) => {
-              const completion = getCompletionStatus(timeBlock.id, currentDate);
+              const completion = getCompletionStatus(timeBlock.id);
               const isCurrentTime = isTimeBlockCurrent(timeBlock, currentDate);
               const [startHour, startMinute] = timeBlock.start_time.split(':').map(Number);
               const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
@@ -994,7 +978,7 @@ export default function Schedule({ user }: ScheduleProps) {
       {/* Floating Action Menu Portal */}
       {menuPosition && activeMenuBlockId && (() => {
         const timeBlock = timeBlocks.find(tb => tb.id === activeMenuBlockId);
-        const completion = timeBlock ? getCompletionStatus(timeBlock.id, currentDate) : null;
+        const completion = timeBlock ? getCompletionStatus(timeBlock.id) : null;
         
         return createPortal(
           <div
@@ -1010,7 +994,7 @@ export default function Schedule({ user }: ScheduleProps) {
             <div className="flex flex-wrap gap-2 justify-center">
               <button
                 onClick={() => {
-                  if (timeBlock) handleCompletion(timeBlock.id, currentDate, 'completed');
+                  if (timeBlock) handleCompletion(timeBlock.id, 'completed');
                   setMenuPosition(null);
                   setActiveMenuBlockId(null);
                   setActiveBlockId(null);
@@ -1026,7 +1010,7 @@ export default function Schedule({ user }: ScheduleProps) {
               </button>
               <button
                 onClick={() => {
-                  if (timeBlock) handleCompletion(timeBlock.id, currentDate, 'failed');
+                  if (timeBlock) handleCompletion(timeBlock.id, 'failed');
                   setMenuPosition(null);
                   setActiveMenuBlockId(null);
                   setActiveBlockId(null);
