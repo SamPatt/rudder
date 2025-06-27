@@ -1,25 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
-import { Database } from '../types/database';
+import { Task, Goal, Value } from '../types/database';
 import { User } from '@supabase/supabase-js';
 import GoalSelector from './GoalSelector';
 import TimeDropdown from './TimeDropdown';
-import ConfirmationModal from './ConfirmationModal';
-
-type TimeBlock = Database['public']['Tables']['time_blocks']['Row'];
-type ScheduleCompletion = Database['public']['Tables']['schedule_completions']['Row'];
-
-// Update the type for TimeBlock to allow optional legacy fields
-type TimeBlockWithLegacy = TimeBlock & {
-  start_hour?: number;
-  duration_m?: number;
-  goal_id?: string | null;
-};
 
 interface ScheduleProps {
+  tasks: Task[];
+  goals: Goal[];
+  values: Value[];
+  setTasks: (tasks: Task[]) => void;
   user: User;
-  completions: any[];
 }
 
 const DAYS_OF_WEEK = [
@@ -35,156 +27,118 @@ const DAYS_OF_WEEK = [
 const RECURRENCE_OPTIONS = [
   { value: 'daily', label: 'Daily' },
   { value: 'weekdays', label: 'Weekdays' },
-  { value: 'weekly', label: 'Weekly' },
   { value: 'custom', label: 'Custom Days' },
   { value: 'once', label: 'One Time Event' },
 ];
 
-export default function Schedule({ user, completions }: ScheduleProps) {
-  const [timeBlocks, setTimeBlocks] = useState<TimeBlockWithLegacy[]>([]);
+export default function Schedule({ tasks, goals, values, setTasks, user }: ScheduleProps) {
   const [showForm, setShowForm] = useState(false);
-  const [editingBlock, setEditingBlock] = useState<TimeBlockWithLegacy | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [formData, setFormData] = useState({
     title: '',
+    description: '',
     start_time: '09:00',
     end_time: '10:00',
-    recur: 'daily',
+    recur: 'daily' as 'once' | 'daily' | 'weekdays' | 'custom',
     custom_days: [] as number[],
     event_date: new Date().toISOString().split('T')[0],
     goal_id: null as string | null,
   });
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [goals, setGoals] = useState<Database['public']['Tables']['goals']['Row'][]>([]);
-  const [values, setValues] = useState<Database['public']['Tables']['values']['Row'][]>([]);
   const [showGoalSelector, setShowGoalSelector] = useState(false);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const lastStartTimeRef = useRef(formData.start_time);
   const [endTimeManuallyChanged, setEndTimeManuallyChanged] = useState(false);
-  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number; width: number } | null>(null);
-  const [activeMenuBlockId, setActiveMenuBlockId] = useState<string | null>(null);
+  const [activeMenuTaskId, setActiveMenuTaskId] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [timeBlockToDelete, setTimeBlockToDelete] = useState<string | null>(null);
+  const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchTimeBlocks();
-    fetchGoals();
-    fetchValues();
-  }, []);
-
-  const fetchTimeBlocks = async () => {
-    const { data, error } = await supabase
-      .from('time_blocks')
-      .select('*, task:tasks(*)')
-      .eq('user_id', user.id)
-      .order('start_time', { ascending: true });
+  // Get scheduled tasks (tasks with start_time and end_time)
+  const getScheduledTasks = () => {
+    const scheduledTasks = tasks.filter(task => task.start_time && task.end_time);
     
-    if (error) {
-      // Fallback to old schema if new columns don't exist
-      const { data: oldData, error: oldError } = await supabase
-        .from('time_blocks')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('start_hour', { ascending: true });
-      
-      if (oldError) {
-        console.error('Error fetching time blocks:', oldError);
-      } else {
-        // Convert old schema to new format
-        const convertedData = (oldData || []).map(block => {
-          // Calculate end time from old format
-          const startHour = block.start_hour || 9;
-          const durationM = block.duration_m || 60;
-          const endHour = (startHour + Math.floor(durationM / 60)) % 24;
-          const endMinute = durationM % 60;
-          const calculatedEndTime = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`;
-
-          return {
-            ...block,
-            start_time: block.start_time || `${startHour.toString().padStart(2, '0')}:00`,
-            end_time: block.end_time || calculatedEndTime,
-            recur: block.recur || 'daily',
-            custom_days: block.custom_days || null,
-            event_date: block.event_date || null,
-          };
-        });
-        setTimeBlocks(convertedData);
+    // For each day, prioritize daily instances over recurring tasks
+    const today = new Date().toISOString().split('T')[0];
+    const result: Task[] = [];
+    
+    // Group tasks by their key (title + start_time + end_time)
+    const taskGroups: { [key: string]: Task[] } = {};
+    
+    scheduledTasks.forEach(task => {
+      const key = `${task.title}-${task.start_time}-${task.end_time}`;
+      if (!taskGroups[key]) {
+        taskGroups[key] = [];
       }
-    } else {
-      // Convert any remaining old format blocks
-      const convertedData = (data || []).map(block => {
-        // Calculate end time from old format if needed
-        let calculatedEndTime = block.end_time;
-        if (!calculatedEndTime && block.start_hour !== undefined && block.duration_m !== undefined) {
-          const startHour = block.start_hour || 9;
-          const durationM = block.duration_m || 60;
-          const endHour = (startHour + Math.floor(durationM / 60)) % 24;
-          const endMinute = durationM % 60;
-          calculatedEndTime = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`;
+      taskGroups[key].push(task);
+    });
+    
+    // For each group, prioritize daily instances for the current date
+    Object.values(taskGroups).forEach(group => {
+      // Find daily instance for the current date (not just today)
+      const dailyInstance = group.find(task => 
+        task.date === currentDate.toISOString().split('T')[0] && 
+        !task.recur // This is a daily instance, not a recurring task
+      );
+      
+      // Find recurring task
+      const recurringTask = group.find(task => 
+        task.recur && 
+        task.recur !== 'once' &&
+        isTaskScheduledForDate(task, currentDate)
+      );
+      
+      // If we have a daily instance for the current date, use it
+      if (dailyInstance) {
+        result.push(dailyInstance);
+      } 
+      // Otherwise, if we have a recurring task scheduled for this date, use it
+      else if (recurringTask) {
+        result.push(recurringTask);
+      }
+      // For one-time tasks, always include them
+      else {
+        const oneTimeTask = group.find(task => task.recur === 'once');
+        if (oneTimeTask && isTaskScheduledForDate(oneTimeTask, currentDate)) {
+          result.push(oneTimeTask);
         }
-
-        return {
-          ...block,
-          start_time: block.start_time || `${(block.start_hour || 9).toString().padStart(2, '0')}:00`,
-          end_time: calculatedEndTime || '10:00',
-          recur: block.recur || 'daily',
-          custom_days: block.custom_days || null,
-          event_date: block.event_date || null,
-        };
-      });
-      setTimeBlocks(convertedData);
-    }
-  };
-
-  const fetchGoals = async () => {
-    const { data, error } = await supabase
-      .from('goals')
-      .select('*')
-      .eq('user_id', user.id);
+      }
+    });
     
-    if (error) {
-      console.error('Error fetching goals:', error);
-    } else {
-      setGoals(data || []);
-    }
-  };
-
-  const fetchValues = async () => {
-    const { data, error } = await supabase
-      .from('values')
-      .select('*')
-      .eq('user_id', user.id);
-    
-    if (error) {
-      console.error('Error fetching values:', error);
-    } else {
-      setValues(data || []);
-    }
+    return result;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const timeBlockData = {
-      ...formData,
+    const taskData = {
+      title: formData.title,
+      description: formData.description,
+      start_time: formData.start_time,
+      end_time: formData.end_time,
+      recur: formData.recur,
       custom_days: formData.recur === 'custom' ? formData.custom_days : null,
       event_date: formData.recur === 'once' ? formData.event_date : null,
       goal_id: formData.goal_id || null,
+      is_done: false,
+      date: formData.recur === 'once' ? formData.event_date : new Date().toISOString().split('T')[0],
       user_id: user.id,
     };
 
-    if (editingBlock) {
-      // Update existing time block
+    if (editingTask) {
+      // Update existing task
       const { error } = await supabase
-        .from('time_blocks')
-        .update(timeBlockData)
-        .eq('id', editingBlock.id);
+        .from('tasks')
+        .update(taskData)
+        .eq('id', editingTask.id);
 
       if (error) {
-        console.error('Error updating time block:', error);
+        console.error('Error updating task:', error);
       } else {
         setFormData({
           title: '',
+          description: '',
           start_time: '09:00',
           end_time: '10:00',
           recur: 'daily',
@@ -192,49 +146,25 @@ export default function Schedule({ user, completions }: ScheduleProps) {
           event_date: new Date().toISOString().split('T')[0],
           goal_id: null,
         });
-        setEditingBlock(null);
+        setEditingTask(null);
         setSelectedGoalId(null);
         setShowForm(false);
-        fetchTimeBlocks();
       }
     } else {
-      // Create new task first
-      const today = new Date().toISOString().split('T')[0];
-      
-      // Determine if this is a recurring task and set appropriate fields
-      const isRecurring = formData.recur !== 'once';
-      const recurType = isRecurring ? formData.recur : null;
-      const customDays = isRecurring && formData.recur === 'custom' ? formData.custom_days : null;
-      
-      const { data: taskData, error: taskError } = await supabase
+      // Create new task
+      const { data, error } = await supabase
         .from('tasks')
-        .insert([{ 
-          title: formData.title, 
-          is_done: false,
-          is_recurring: isRecurring,
-          recur_type: recurType,
-          custom_days: customDays,
-          date: today,
-          user_id: user.id,
-        }])
-        .select('id')
+        .insert([taskData])
+        .select('*, goal:goals(*)')
         .single();
 
-      if (taskError || !taskData) {
-        console.error('Error creating task:', taskError);
-        return;
-      }
-
-      // Create new time block with task_id
-      const { error } = await supabase
-        .from('time_blocks')
-        .insert([{ ...timeBlockData, task_id: taskData.id }]);
-
       if (error) {
-        console.error('Error creating time block:', error);
+        console.error('Error creating task:', error);
       } else {
+        setTasks([data, ...tasks]);
         setFormData({
           title: '',
+          description: '',
           start_time: '09:00',
           end_time: '10:00',
           recur: 'daily',
@@ -244,79 +174,54 @@ export default function Schedule({ user, completions }: ScheduleProps) {
         });
         setSelectedGoalId(null);
         setShowForm(false);
-        fetchTimeBlocks();
       }
     }
   };
 
-  const handleEdit = (timeBlock: TimeBlockWithLegacy) => {
-    // Calculate end time from old format if needed
-    let calculatedEndTime = timeBlock.end_time;
-    if (!calculatedEndTime && timeBlock.start_hour !== undefined && timeBlock.duration_m !== undefined) {
-      const startHour = timeBlock.start_hour || 9;
-      const durationM = timeBlock.duration_m || 60;
-      const endHour = (startHour + Math.floor(durationM / 60)) % 24;
-      const endMinute = durationM % 60;
-      calculatedEndTime = `${endHour.toString().padStart(2, '0')}:${endMinute.toString().padStart(2, '0')}`;
-    }
-    
-    setEditingBlock(timeBlock);
+  const handleEdit = (task: Task) => {
+    setEditingTask(task);
     setFormData({
-      title: timeBlock.title,
-      start_time: timeBlock.start_time || `${(timeBlock.start_hour || 9).toString().padStart(2, '0')}:00`,
-      end_time: calculatedEndTime || '10:00',
-      recur: timeBlock.recur || 'daily',
-      custom_days: timeBlock.custom_days || [],
-      event_date: timeBlock.event_date || new Date().toISOString().split('T')[0],
-      goal_id: timeBlock.goal_id || null,
+      title: task.title,
+      description: task.description || '',
+      start_time: task.start_time || '09:00',
+      end_time: task.end_time || '10:00',
+      recur: task.recur || 'daily',
+      custom_days: task.custom_days || [],
+      event_date: task.event_date || new Date().toISOString().split('T')[0],
+      goal_id: task.goal_id || null,
     });
-    setSelectedGoalId(timeBlock.goal_id || null);
+    setSelectedGoalId(task.goal_id || null);
     setShowForm(true);
   };
 
-  const handleDelete = async (timeBlockId: string) => {
-    setTimeBlockToDelete(timeBlockId);
+  const handleDelete = async (taskId: string) => {
+    setTaskToDelete(taskId);
     setShowDeleteModal(true);
   };
 
   const confirmDelete = async () => {
-    if (!timeBlockToDelete) return;
+    if (!taskToDelete) return;
     
-    // First, find the time block to get its title
-    const timeBlock = timeBlocks.find(tb => tb.id === timeBlockToDelete);
-    
-    if (timeBlock) {
-      // Delete the time block first to avoid foreign key constraint
-      const { error: timeBlockError } = await supabase
-        .from('time_blocks')
-        .delete()
-        .eq('id', timeBlockToDelete);
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', taskToDelete)
+      .eq('user_id', user.id);
 
-      if (timeBlockError) {
-        console.error('Error deleting time block:', timeBlockError);
-        return;
-      }
-      
-      // Now delete any associated tasks with the same title
-      const { error: taskDeleteError } = await supabase
-        .from('tasks')
-        .delete()
-        .eq('title', timeBlock.title)
-        .eq('user_id', user.id);
-
-      if (taskDeleteError) {
-        console.error('Error deleting associated tasks:', taskDeleteError);
-      }
-      
-      fetchTimeBlocks();
+    if (error) {
+      console.error('Error deleting task:', error);
+    } else {
+      setTasks(tasks.filter(task => task.id !== taskToDelete));
     }
     
-    setTimeBlockToDelete(null);
+    setTaskToDelete(null);
+    setShowDeleteModal(false);
   };
 
   const handleCancel = () => {
     setFormData({
       title: '',
+      description: '',
       start_time: '09:00',
       end_time: '10:00',
       recur: 'daily',
@@ -324,7 +229,7 @@ export default function Schedule({ user, completions }: ScheduleProps) {
       event_date: new Date().toISOString().split('T')[0],
       goal_id: null,
     });
-    setEditingBlock(null);
+    setEditingTask(null);
     setSelectedGoalId(null);
     setShowForm(false);
   };
@@ -332,33 +237,39 @@ export default function Schedule({ user, completions }: ScheduleProps) {
   const handleDayToggle = (dayValue: number) => {
     setFormData(prev => ({
       ...prev,
-      custom_days: (prev.custom_days as number[]).includes(dayValue)
-        ? (prev.custom_days as number[]).filter(d => d !== dayValue)
-        : [...(prev.custom_days as number[]), dayValue].sort()
+      custom_days: prev.custom_days.includes(dayValue)
+        ? prev.custom_days.filter(d => d !== dayValue)
+        : [...prev.custom_days, dayValue].sort()
     }));
   };
 
-  const getDaysForTimeBlock = (timeBlock: TimeBlockWithLegacy): number[] => {
-    if (timeBlock.custom_days) {
-      return timeBlock.custom_days;
+  const getDaysForTask = (task: Task): number[] => {
+    if (task.custom_days) {
+      return task.custom_days;
     }
     
-    switch (timeBlock.recur) {
+    switch (task.recur) {
       case 'daily': return [0, 1, 2, 3, 4, 5, 6];
       case 'weekdays': return [1, 2, 3, 4, 5];
-      case 'weekly': return [1];
       default: return [];
     }
   };
 
-  const isTimeBlockScheduledForDate = (timeBlock: TimeBlockWithLegacy, date: Date): boolean => {
+  const isTaskScheduledForDate = (task: Task, date: Date): boolean => {
     // Don't show recurring events for dates before they were created
     const checkDate = new Date(date);
     checkDate.setHours(0, 0, 0, 0);
     
+    // Handle daily instances (tasks with recur: null)
+    if (!task.recur) {
+      const taskDateStr = task.date;
+      const currentDateStr = date.toISOString().split('T')[0];
+      return taskDateStr === currentDateStr;
+    }
+    
     // For recurring events, only show if the date is on or after the creation date
-    if (timeBlock.recur !== 'once' && timeBlock.created_at) {
-      const createdDate = new Date(timeBlock.created_at);
+    if (task.recur !== 'once' && task.created_at) {
+      const createdDate = new Date(task.created_at);
       createdDate.setHours(0, 0, 0, 0);
       
       if (checkDate < createdDate) {
@@ -367,19 +278,20 @@ export default function Schedule({ user, completions }: ScheduleProps) {
     }
     
     // Handle one-time events
-    if (timeBlock.recur === 'once' && timeBlock.event_date) {
-      // Compare only the date part (YYYY-MM-DD) for both
-      const eventDateStr = new Date(timeBlock.event_date).toISOString().split('T')[0];
+    if (task.recur === 'once' && task.event_date) {
+      const eventDateStr = new Date(task.event_date).toISOString().split('T')[0];
       const currentDateStr = date.toISOString().split('T')[0];
-      return eventDateStr === currentDateStr;
+      const result = eventDateStr === currentDateStr;
+      return result;
     }
     
     const dayOfWeek = date.getDay();
-    const days = getDaysForTimeBlock(timeBlock);
-    return days.includes(dayOfWeek);
+    const days = getDaysForTask(task);
+    const result = days.includes(dayOfWeek);
+    return result;
   };
 
-  const isTimeBlockCurrent = (timeBlock: TimeBlockWithLegacy, date: Date): boolean => {
+  const isTaskCurrent = (task: Task, date: Date): boolean => {
     const now = new Date();
     const today = new Date();
     
@@ -389,8 +301,8 @@ export default function Schedule({ user, completions }: ScheduleProps) {
     }
     
     // Parse start and end times
-    const [startHour, startMinute] = timeBlock.start_time.split(':').map(Number);
-    const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
+    const [startHour, startMinute] = task.start_time!.split(':').map(Number);
+    const [endHour, endMinute] = task.end_time!.split(':').map(Number);
     
     const startTime = new Date(today);
     startTime.setHours(startHour, startMinute, 0, 0);
@@ -398,108 +310,136 @@ export default function Schedule({ user, completions }: ScheduleProps) {
     const endTime = new Date(today);
     endTime.setHours(endHour, endMinute, 0, 0);
     
-    // Handle overnight blocks (end time before start time)
-    if (endTime < startTime) {
-      endTime.setDate(endTime.getDate() + 1);
-    }
-    
-    return now >= startTime && now <= endTime;
+    return now >= startTime && now < endTime;
   };
 
-  const getCompletionStatus = (timeBlockId: string): ScheduleCompletion | null => {
-    const today = new Date().toISOString().split('T')[0];
-    return completions.find(c => c.time_block_id === timeBlockId && c.date === today) || null;
-  };
+  const updateTaskStatus = async (taskId: string, status: 'completed' | 'skipped' | 'failed') => {
+    try {
+      const targetDate = currentDate.toISOString().split('T')[0];
+      const task = tasks.find(t => t.id === taskId);
+      
+      console.log('=== DEBUG: updateTaskStatus ===');
+      console.log('Task ID:', taskId);
+      console.log('Task:', task);
+      console.log('currentDate object:', currentDate);
+      console.log('Target date (currentDate):', targetDate);
+      console.log('Actual today:', new Date().toISOString().split('T')[0]);
+      
+      if (!task) return;
 
-  const handleCompletion = async (timeBlockId: string, status: 'completed' | 'skipped' | 'failed') => {
-    const today = new Date().toISOString().split('T')[0];
-    const existingCompletion = getCompletionStatus(timeBlockId);
-    
-    // If clicking the same status that's already active, reset it (delete the completion)
-    if (existingCompletion && existingCompletion.status === status) {
-      const { error } = await supabase
-        .from('schedule_completions')
-        .delete()
-        .eq('id', existingCompletion.id)
-        .eq('user_id', user.id);
-      if (error) {
-        console.error('Error deleting completion:', error);
-        return;
-      }
-    } else if (existingCompletion) {
-      // Update existing completion to new status
-      const { error } = await supabase
-        .from('schedule_completions')
-        .update({ status })
-        .eq('id', existingCompletion.id)
-        .eq('user_id', user.id);
-      if (error) {
-        console.error('Error updating completion:', error);
-        return;
-      }
-    } else {
-      // Create new completion
-      const { error } = await supabase
-        .from('schedule_completions')
-        .insert([{ time_block_id: timeBlockId, date: today, status, user_id: user.id }]);
-      if (error) {
-        console.error('Error creating completion:', error);
-        return;
-      }
-    }
-    
-    if (status === 'completed') {
-      const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
-      if (timeBlock) {
-        // First, try to find an existing task with the same title for today
-        const { data: existingTasks, error: taskFetchError } = await supabase
-          .from('tasks')
-          .select('*')
-          .eq('title', timeBlock.title)
-          .eq('date', today)
-          .eq('user_id', user.id);
+      // For recurring tasks, create a daily instance for the current date being viewed
+      if (task.recur && task.recur !== 'once') {
+        console.log('Processing recurring task');
         
-        if (!taskFetchError && existingTasks && existingTasks.length > 0) {
-          // Update existing task to completed
-          const taskId = existingTasks[0].id;
-          await supabase
+        // Check if a daily instance already exists for the target date
+        const existingDailyTask = tasks.find(t => 
+          t.title === task.title && 
+          t.date === targetDate && 
+          t.start_time === task.start_time && 
+          t.end_time === task.end_time &&
+          !t.recur // This must be a daily instance, not a recurring task
+        );
+
+        console.log('Existing daily task:', existingDailyTask);
+
+        if (existingDailyTask) {
+          console.log('Updating existing daily instance');
+          // Update the existing daily instance
+          const { error } = await supabase
             .from('tasks')
-            .update({ is_done: true })
-            .eq('id', taskId)
+            .update({ 
+              completion_status: status,
+              is_done: status === 'completed',
+              completed_at: status === 'completed' ? new Date().toISOString() : null
+            })
+            .eq('id', existingDailyTask.id)
             .eq('user_id', user.id);
+
+          if (error) throw error;
+
+          setTasks(tasks.map(t => 
+            t.id === existingDailyTask.id ? { 
+              ...t, 
+              completion_status: status,
+              is_done: status === 'completed',
+              completed_at: status === 'completed' ? new Date().toISOString() : null
+            } : t
+          ));
         } else {
-          // Create a new task for today
-          const { error: taskError } = await supabase
+          console.log('Creating new daily instance');
+          // Create a new daily instance for the target date
+          const dailyTaskData = {
+            title: task.title,
+            description: task.description,
+            start_time: task.start_time,
+            end_time: task.end_time,
+            goal_id: task.goal_id,
+            date: targetDate,
+            completion_status: status,
+            is_done: status === 'completed',
+            completed_at: status === 'completed' ? new Date().toISOString() : null,
+            user_id: user.id,
+            // Don't copy recur fields - this is a one-time instance
+          };
+
+          console.log('Daily task data:', dailyTaskData);
+
+          const { data: newTask, error } = await supabase
             .from('tasks')
-            .insert([{ 
-              title: `${timeBlock.title} (${timeBlock.start_time} - ${timeBlock.end_time})`, 
-              is_done: true,
-              date: today,
-              user_id: user.id,
-            }]);
-          if (taskError) {
-            console.error('Error creating task:', taskError);
-          }
+            .insert([dailyTaskData])
+            .select('*, goal:goals(*)')
+            .single();
+
+          if (error) throw error;
+
+          console.log('New daily task created:', newTask);
+          setTasks([newTask, ...tasks]);
         }
+      } else {
+        console.log('Processing one-time task');
+        // For one-time tasks, update the original task
+        const { error } = await supabase
+          .from('tasks')
+          .update({ 
+            completion_status: status,
+            is_done: status === 'completed',
+            completed_at: status === 'completed' ? new Date().toISOString() : null
+          })
+          .eq('id', taskId)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        setTasks(tasks.map(t => 
+          t.id === taskId ? { 
+            ...t, 
+            completion_status: status,
+            is_done: status === 'completed',
+            completed_at: status === 'completed' ? new Date().toISOString() : null
+          } : t
+        ));
       }
+      console.log('=== END DEBUG ===');
+    } catch (error) {
+      console.error('Error updating task status:', error);
     }
-    // Note: Real-time subscriptions will handle updating the completions state
   };
 
   const handleGoalSelect = (goalIds: string[]) => {
-    const goalId = goalIds.length > 0 ? goalIds[0] : null;
-    setSelectedGoalId(goalId);
-    setFormData(prev => ({ ...prev, goal_id: goalId }));
+    setFormData(prev => ({
+      ...prev,
+      goal_id: goalIds.length > 0 ? goalIds[0] : null
+    }));
+    setSelectedGoalId(goalIds.length > 0 ? goalIds[0] : null);
     setShowGoalSelector(false);
   };
 
   const getSelectedGoalName = () => {
-    if (!selectedGoalId) return '';
+    if (!selectedGoalId) return 'Select a goal';
     const goal = goals.find(g => g.id === selectedGoalId);
-    return goal ? goal.name : '';
+    return goal ? goal.name : 'Select a goal';
   };
 
-  // Format time as HH:mm
   const formatTime = (t: string) => {
     if (!t) return '';
     let [hour, minute] = t.split(':').map(Number);
@@ -509,108 +449,116 @@ export default function Schedule({ user, completions }: ScheduleProps) {
     return `${hour}:${minute.toString().padStart(2, '0')} ${ampm}`;
   };
 
-  // Helper to group overlapping events and assign columns
-  function groupAndAssignColumns(blocks: TimeBlockWithLegacy[]): { [key: string]: TimeBlockWithLegacy & { _col: number; _colCount: number } } {
-    // Convert time to minutes for easier comparison
+  function groupAndAssignColumns(scheduledTasks: Task[]): { [key: string]: Task & { _col: number; _colCount: number } } {
     function toMinutes(t: string): number {
-      const [h, m] = t.split(':').map(Number);
-      return h * 60 + m;
+      const [hours, minutes] = t.split(':').map(Number);
+      return hours * 60 + minutes;
     }
-    // Sort by start time
-    const sorted = [...blocks].sort((a, b) => toMinutes(a.start_time) - toMinutes(b.start_time));
-    const groups = [];
-    let currentGroup: TimeBlockWithLegacy[] = [];
-    let lastEnd = -1;
-    for (const block of sorted) {
-      const start = toMinutes(block.start_time);
-      const end = toMinutes(block.end_time);
-      if (currentGroup.length === 0 || start < lastEnd) {
-        currentGroup.push(block);
-        lastEnd = Math.max(lastEnd, end);
-      } else {
-        groups.push(currentGroup);
-        currentGroup = [block];
-        lastEnd = end;
+
+    function overlaps(a: Task, b: Task): boolean {
+      const aStart = toMinutes(a.start_time!);
+      const aEnd = toMinutes(a.end_time!);
+      const bStart = toMinutes(b.start_time!);
+      const bEnd = toMinutes(b.end_time!);
+      
+      return aStart < bEnd && bStart < aEnd;
+    }
+
+    const result: { [key: string]: Task & { _col: number; _colCount: number } } = {};
+    
+    // Group tasks by time slots
+    const timeSlots: { [key: string]: Task[] } = {};
+    
+    scheduledTasks.forEach(task => {
+      const timeKey = `${task.start_time}-${task.end_time}`;
+      if (!timeSlots[timeKey]) {
+        timeSlots[timeKey] = [];
       }
-    }
-    if (currentGroup.length) groups.push(currentGroup);
-    // Assign columns within each group
-    const result: { [key: string]: TimeBlockWithLegacy & { _col: number; _colCount: number } } = {};
-    for (const group of groups) {
-      if (group.length === 1) {
-        result[group[0].id] = { ...group[0], _col: 0, _colCount: 1 };
-      } else {
-        // For each event, assign a column so that no two overlapping events share a column
-        const cols: number[] = [];
-        for (let i = 0; i < group.length; i++) {
-          let col = 0;
-          while (cols.some((c, idx) => idx !== i && c === col &&
-            !(toMinutes(group[i].end_time) <= toMinutes(group[idx].start_time) ||
-              toMinutes(group[i].start_time) >= toMinutes(group[idx].end_time)))) {
-            col++;
+      timeSlots[timeKey].push(task);
+    });
+
+    // For each time slot, assign columns to overlapping tasks
+    Object.values(timeSlots).forEach(tasksInSlot => {
+      const columns: Task[][] = [];
+      
+      tasksInSlot.forEach(task => {
+        let placed = false;
+        
+        // Try to place in existing column
+        for (let i = 0; i < columns.length; i++) {
+          const canPlace = columns[i].every(existingTask => !overlaps(task, existingTask));
+          if (canPlace) {
+            columns[i].push(task);
+            placed = true;
+            break;
           }
-          cols[i] = col;
         }
-        for (let i = 0; i < group.length; i++) {
-          result[group[i].id] = { ...group[i], _col: cols[i], _colCount: group.length };
+        
+        // If couldn't place, create new column
+        if (!placed) {
+          columns.push([task]);
         }
-      }
-    }
+      });
+
+      // Assign column numbers
+      tasksInSlot.forEach(task => {
+        const columnIndex = columns.findIndex(col => col.includes(task));
+        result[task.id] = {
+          ...task,
+          _col: columnIndex,
+          _colCount: columns.length
+        };
+      });
+    });
+
     return result;
   }
 
-  // Determine which hours to display
-  const earlyEventBlocks = timeBlocks.filter(tb => {
-    const [startHour] = tb.start_time.split(':').map(Number);
-    const [endHour] = tb.end_time.split(':').map(Number);
-    return (
-      (startHour < 6 && isTimeBlockScheduledForDate(tb, currentDate)) ||
-      (endHour > 0 && endHour <= 6 && isTimeBlockScheduledForDate(tb, currentDate))
-    );
-  });
-  const earlyEventExists = earlyEventBlocks.length > 0;
-  const currentHour = new Date().getHours();
-  const showEarly = earlyEventExists || currentHour < 6;
-  const hourRange = showEarly ? Array.from({ length: 24 }, (_, h) => h) : Array.from({ length: 18 }, (_, h) => h + 6);
-
-  function isPastDue(timeBlock: TimeBlockWithLegacy, completion: ScheduleCompletion | null, currentDate: Date): boolean {
-    if (completion) {
-      return false;
-    }
-    
-    // Check if the time block is scheduled for today
-    if (!isTimeBlockScheduledForDate(timeBlock, currentDate)) {
-      return false;
-    }
-    
-    // Only show past due for today, not future dates
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const checkDate = new Date(currentDate);
-    checkDate.setHours(0, 0, 0, 0);
-    
-    if (checkDate > today) {
-      return false;
-    }
-    
-    // For one-time events, check if the event date is today or earlier
-    if (timeBlock.recur === 'once' && timeBlock.event_date) {
-      const eventDate = new Date(timeBlock.event_date);
-      eventDate.setHours(0,0,0,0);
-      const today = new Date(currentDate);
-      today.setHours(0,0,0,0);
-      if (eventDate > today) {
-        return false;
-      }
-    }
-    
+  function isPastDue(task: Task, currentDate: Date): boolean {
     const now = new Date();
-    const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
-    const endTime = new Date();
+    const today = new Date();
+    
+    // Only check for today's tasks
+    if (currentDate.toDateString() !== today.toDateString()) {
+      return false;
+    }
+    
+    // Check if task is done or failed
+    if (task.is_done || task.completion_status === 'failed') {
+      return false;
+    }
+    
+    // Check if past end time
+    const [endHour, endMinute] = task.end_time!.split(':').map(Number);
+    const endTime = new Date(today);
     endTime.setHours(endHour, endMinute, 0, 0);
     
     return now > endTime;
   }
+
+  const navigateDate = (direction: 'prev' | 'next') => {
+    const newDate = new Date(currentDate);
+    if (direction === 'prev') {
+      newDate.setDate(newDate.getDate() - 1);
+    } else {
+      newDate.setDate(newDate.getDate() + 1);
+    }
+    setCurrentDate(newDate);
+  };
+
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+  };
+
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return date.toDateString() === today.toDateString();
+  };
 
   return (
     <div className="p-2 sm:p-6 sm:max-w-6xl sm:mx-auto w-full">
@@ -629,7 +577,7 @@ export default function Schedule({ user, completions }: ScheduleProps) {
           <div className="bg-gray-800 p-4 sm:p-6 rounded-lg w-full max-w-md mx-2 sm:mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg sm:text-xl font-semibold text-white">
-                {editingBlock ? 'Edit Time Block' : 'Add New Time Block'}
+                {editingTask ? 'Edit Time Block' : 'Add New Time Block'}
               </h3>
               <button
                 type="button"
@@ -650,6 +598,19 @@ export default function Schedule({ user, completions }: ScheduleProps) {
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-green-500"
                   required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Description (Optional)
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                  rows={3}
+                  placeholder="Add a description..."
                 />
               </div>
 
@@ -713,7 +674,7 @@ export default function Schedule({ user, completions }: ScheduleProps) {
                 </label>
                 <select
                   value={formData.recur}
-                  onChange={(e) => setFormData({ ...formData, recur: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, recur: e.target.value as 'once' | 'daily' | 'weekdays' | 'custom' })}
                   className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
                   {RECURRENCE_OPTIONS.map(option => (
@@ -768,7 +729,7 @@ export default function Schedule({ user, completions }: ScheduleProps) {
                   type="submit"
                   className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md transition-colors"
                 >
-                  {editingBlock ? 'Update Time Block' : 'Add Time Block'}
+                  {editingTask ? 'Update Time Block' : 'Add Time Block'}
                 </button>
                 <button
                   type="button"
@@ -786,35 +747,27 @@ export default function Schedule({ user, completions }: ScheduleProps) {
       <div className="bg-slate-800 rounded-none sm:rounded-lg p-2 sm:p-6 w-full">
         <div className="mb-2 w-full flex flex-col items-center">
           <h2 className="text-lg sm:text-xl font-semibold text-white text-center w-full">
-            {currentDate.toLocaleDateString('en-US', {
-              weekday: 'long',
-              month: 'long',
-              day: 'numeric'
-            })}
+            {formatDate(currentDate)}
           </h2>
           <div className="flex flex-wrap gap-2 justify-center mt-2">
             <button
-              onClick={() => {
-                const prev = new Date(currentDate);
-                prev.setDate(prev.getDate() - 1);
-                setCurrentDate(prev);
-              }}
+              onClick={() => navigateDate('prev')}
               className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded transition-colors text-sm"
             >
               &lt;
             </button>
             <button
               onClick={() => setCurrentDate(new Date())}
-              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded transition-colors text-sm"
+              className={`px-3 py-1 rounded transition-colors text-sm ${
+                isToday(currentDate) 
+                  ? 'bg-green-600 text-white' 
+                  : 'bg-slate-700 hover:bg-slate-600 text-white'
+              }`}
             >
               Today
             </button>
             <button
-              onClick={() => {
-                const next = new Date(currentDate);
-                next.setDate(next.getDate() + 1);
-                setCurrentDate(next);
-              }}
+              onClick={() => navigateDate('next')}
               className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded transition-colors text-sm"
             >
               &gt;
@@ -822,70 +775,92 @@ export default function Schedule({ user, completions }: ScheduleProps) {
           </div>
         </div>
         {/* Schedule grid: 24 rows (one per hour), hour labels fixed, blocks span rows */}
-        <div className="grid grid-cols-[4rem_1fr]" style={{ gridTemplateRows: `repeat(${hourRange.length}, 60px)`, position: 'relative' }}>
+        <div className="grid grid-cols-[4rem_1fr]" style={{ gridTemplateRows: `repeat(${24}, 60px)`, position: 'relative' }}>
           {/* Hour labels */}
-          {hourRange.map(hour => (
+          {Array.from({ length: 24 }, (_, h) => (
             <div
-              key={`label-${hour}`}
+              key={`label-${h}`}
               className="col-start-1 row-start-[auto] flex items-center justify-end pr-2 select-none"
-              style={{ gridRow: hour - (showEarly ? 0 : 6) + 1, zIndex: 2 }}
+              style={{ gridRow: h + 1, zIndex: 2 }}
             >
-              <span className="text-xs sm:text-sm text-gray-400 font-mono">{`${hour.toString().padStart(2, '0')}:00`}</span>
+              <span className="text-xs sm:text-sm text-gray-400 font-mono">{`${h.toString().padStart(2, '0')}:00`}</span>
             </div>
           ))}
           {/* Full-width hour lines */}
-          {hourRange.map(hour => (
+          {Array.from({ length: 24 }, (_, h) => (
             <div
-              key={`line-${hour}`}
+              key={`line-${h}`}
               className="col-span-2 absolute left-0 right-0 border-b border-slate-700 pointer-events-none"
-              style={{ top: `${(hour - (showEarly ? 0 : 6)) * 60}px`, height: 0, zIndex: 1 }}
+              style={{ top: `${h * 60}px`, height: 0, zIndex: 1 }}
             />
           ))}
           {/* Time blocks with improved overlap grouping and column assignment */}
           {(() => {
             // Get all visible blocks
-            const visibleBlocks = timeBlocks
-              .filter(timeBlock => isTimeBlockScheduledForDate(timeBlock, currentDate))
-              .filter(timeBlock => {
-                const [startHour] = timeBlock.start_time.split(':').map(Number);
+            const allScheduledTasks = getScheduledTasks();
+            console.log('=== DEBUG: Task Rendering ===');
+            console.log('All scheduled tasks:', allScheduledTasks.map(t => ({
+              id: t.id,
+              title: t.title,
+              date: t.date,
+              recur: t.recur,
+              is_done: t.is_done,
+              completion_status: t.completion_status
+            })));
+            
+            const visibleBlocks = allScheduledTasks
+              .filter(task => {
+                const isScheduled = isTaskScheduledForDate(task, currentDate);
+                console.log(`Task ${task.title}: isScheduledForDate = ${isScheduled}`);
+                return isScheduled;
+              })
+              .filter(task => {
+                const [startHour] = task.start_time!.split(':').map(Number);
                 const currentHour = new Date().getHours();
                 const isEarlyMorning = startHour >= 0 && startHour < 6;
                 const isCurrentTimeInEarlyMorning = currentHour >= 0 && currentHour < 6;
-                if (isEarlyMorning && !isCurrentTimeInEarlyMorning) {
-                  return false;
-                }
-                return true;
+                const shouldShow = !(isEarlyMorning && !isCurrentTimeInEarlyMorning);
+                console.log(`Task ${task.title}: early morning filter = ${shouldShow} (startHour: ${startHour}, currentHour: ${currentHour})`);
+                return shouldShow;
               });
+              
+            console.log('Visible blocks after filtering:', visibleBlocks.map(t => ({
+              id: t.id,
+              title: t.title,
+              is_done: t.is_done,
+              completion_status: t.completion_status
+            })));
+            console.log('=== END DEBUG ===');
+            
             // Group and assign columns
             const blocksWithCols = groupAndAssignColumns(visibleBlocks);
-            return Object.values(blocksWithCols).map((timeBlock) => {
-              const completion = getCompletionStatus(timeBlock.id);
-              const isCurrentTime = isTimeBlockCurrent(timeBlock, currentDate);
-              const [startHour, startMinute] = timeBlock.start_time.split(':').map(Number);
-              const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
+            return Object.values(blocksWithCols).map((task) => {
+              const isCurrentTime = isTaskCurrent(task, currentDate);
+              const [startHour, startMinute] = task.start_time!.split(':').map(Number);
+              const [endHour, endMinute] = task.end_time!.split(':').map(Number);
               // Only render if block is in hourRange
-              if (!hourRange.some(h => h === startHour || (startHour < h && endHour > h))) return null;
-              const top = ((startHour - (showEarly ? 0 : 6)) * 60) + startMinute;
-              const height = ((endHour * 60 + endMinute) - (startHour * 60 + startMinute));
+              if (!Array.from({ length: 24 }, (_, h) => h).some(h => h === startHour || (startHour < h && endHour > h))) return null;
+              const top = startHour * 60 + startMinute;
+              const height = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
               // Calculate width and left offset for columns
-              const colCount = timeBlock._colCount || 1;
+              const colCount = task._colCount || 1;
               const width = colCount === 1 ? '100%' : `calc((100% - 0.5rem * ${colCount - 1}) / ${colCount})`;
-              const left = colCount === 1 ? '0' : `calc((${width} + 0.5rem) * ${timeBlock._col})`;
-              const isActive = activeBlockId === timeBlock.id;
+              const left = colCount === 1 ? '0' : `calc((${width} + 0.5rem) * ${task._col})`;
+              const isActive = activeTaskId === task.id;
               return (
                 <div
-                  key={timeBlock.id}
-                  className={`col-start-2 z-10 p-2 sm:p-3 rounded border transition-colors flex flex-col justify-between overflow-visible absolute cursor-pointer
+                  key={task.id}
+                  className={`col-start-2 z-30 p-2 sm:p-3 rounded border transition-colors flex flex-col justify-between overflow-visible absolute cursor-pointer
                     ${
-                      completion?.status === 'completed'
+                      task.completion_status === 'completed'
                         ? 'bg-green-900 border-green-600'
                         : isCurrentTime
                         ? 'border-orange-400 animate-gradient-slow'
-                        : completion?.status === 'failed'
+                        : task.completion_status === 'failed'
                         ? 'bg-red-900 border-red-600'
-                        : completion?.status === 'skipped'
+                        : task.completion_status === 'skipped'
                         ? 'bg-red-900 border-red-600'
-                        : isPastDue(timeBlock, completion, currentDate)
+                        : isPastDue(task, currentDate)
                         ? 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-black opacity-80'
                         : 'bg-slate-700 border-slate-600'
                     }
@@ -900,11 +875,11 @@ export default function Schedule({ user, completions }: ScheduleProps) {
                   onClick={e => {
                     e.stopPropagation();
                     if (isActive) {
-                      setActiveBlockId(null);
+                      setActiveTaskId(null);
                       setMenuPosition(null);
-                      setActiveMenuBlockId(null);
+                      setActiveMenuTaskId(null);
                     } else {
-                      setActiveBlockId(timeBlock.id);
+                      setActiveTaskId(task.id);
                       // Calculate position for the floating menu
                       const rect = e.currentTarget.getBoundingClientRect();
                       setMenuPosition({
@@ -912,7 +887,7 @@ export default function Schedule({ user, completions }: ScheduleProps) {
                         y: rect.bottom + 4,
                         width: rect.width
                       });
-                      setActiveMenuBlockId(timeBlock.id);
+                      setActiveMenuTaskId(task.id);
                     }
                   }}
                 >
@@ -920,12 +895,12 @@ export default function Schedule({ user, completions }: ScheduleProps) {
                   <div className="flex-1 min-w-0 flex flex-col justify-center">
                     <h4 className={`text-xs sm:text-sm font-medium truncate
                       ${isCurrentTime ? 'text-orange-100' :
-                        completion?.status === 'completed' ? 'text-green-200' :
-                        isPastDue(timeBlock, completion, currentDate) ? 'text-gray-800' : 'text-gray-400'
+                        task.completion_status === 'completed' ? 'text-green-200' :
+                        isPastDue(task, currentDate) ? 'text-gray-800' : 'text-gray-400'
                       }`}>
-                      {timeBlock.title} <span className={`text-xs ${isPastDue(timeBlock, completion, currentDate) ? 'text-gray-800' : 'text-gray-400'}`}>({formatTime(timeBlock.start_time)} - {formatTime(timeBlock.end_time)})</span>
+                      {task.title} <span className={`text-xs ${isPastDue(task, currentDate) ? 'text-gray-800' : 'text-gray-400'}`}>({formatTime(task.start_time!)} - {formatTime(task.end_time!)})</span>
                     </h4>
-                    {isPastDue(timeBlock, completion, currentDate) && (
+                    {isPastDue(task, currentDate) && (
                       <p className="text-xs mt-1 text-gray-800">Past due</p>
                     )}
                   </div>
@@ -935,24 +910,23 @@ export default function Schedule({ user, completions }: ScheduleProps) {
           })()}
           
           {/* Clickable overlay for adding a block to a specific hour */}
-          {hourRange.map(hour => {
+          {Array.from({ length: 24 }, (_, h) => {
             // Check if there are any time blocks in this hour
-            const hasTimeBlocksInHour = timeBlocks
-              .filter(timeBlock => isTimeBlockScheduledForDate(timeBlock, currentDate))
-              .some(timeBlock => {
-                const [startHour] = timeBlock.start_time.split(':').map(Number);
-                const [endHour] = timeBlock.end_time.split(':').map(Number);
-                return (startHour <= hour && endHour > hour) || 
-                       (startHour === hour) || 
-                       (endHour > hour && startHour < hour);
+            const hasTimeBlocksInHour = getScheduledTasks()
+              .some(task => {
+                const [startHour] = task.start_time!.split(':').map(Number);
+                const [endHour] = task.end_time!.split(':').map(Number);
+                return (startHour <= h && endHour > h) || 
+                       (startHour === h) || 
+                       (endHour > h && startHour < h);
               });
 
             return (
               <div
-                key={`click-${hour}`}
-                className={`col-start-2 absolute ${hasTimeBlocksInHour ? 'z-5' : 'z-15'}`}
+                key={`click-${h}`}
+                className={`col-start-2 absolute ${hasTimeBlocksInHour ? 'z-20' : 'z-40'}`}
                 style={{ 
-                  top: `${(hour - (showEarly ? 0 : 6)) * 60}px`,
+                  top: `${h * 60}px`,
                   height: '60px',
                   left: '0',
                   right: '0',
@@ -962,10 +936,10 @@ export default function Schedule({ user, completions }: ScheduleProps) {
                   if (!hasTimeBlocksInHour) {
                     setFormData(prev => ({
                       ...prev,
-                      start_time: `${hour.toString().padStart(2, '0')}:00`,
-                      end_time: `${((hour + 1) % 24).toString().padStart(2, '0')}:00`,
+                      start_time: `${h.toString().padStart(2, '0')}:00`,
+                      end_time: `${((h + 1) % 24).toString().padStart(2, '0')}:00`,
                     }));
-                    setEditingBlock(null);
+                    setEditingTask(null);
                     setShowForm(true);
                   }
                 }}
@@ -976,13 +950,12 @@ export default function Schedule({ user, completions }: ScheduleProps) {
       </div>
 
       {/* Floating Action Menu Portal */}
-      {menuPosition && activeMenuBlockId && (() => {
-        const timeBlock = timeBlocks.find(tb => tb.id === activeMenuBlockId);
-        const completion = timeBlock ? getCompletionStatus(timeBlock.id) : null;
+      {menuPosition && activeMenuTaskId && (() => {
+        const task = getScheduledTasks().find(t => t.id === activeMenuTaskId);
         
         return createPortal(
           <div
-            className="fixed bg-slate-800 border border-slate-600 rounded-md shadow-2xl p-2 z-[9999]"
+            className="fixed bg-slate-800 border border-slate-600 rounded-md shadow-2xl p-2 z-[99999]"
             style={{
               left: menuPosition.x,
               top: menuPosition.y,
@@ -994,42 +967,42 @@ export default function Schedule({ user, completions }: ScheduleProps) {
             <div className="flex flex-wrap gap-2 justify-center">
               <button
                 onClick={() => {
-                  if (timeBlock) handleCompletion(timeBlock.id, 'completed');
+                  if (task) updateTaskStatus(task.id, 'completed');
                   setMenuPosition(null);
-                  setActiveMenuBlockId(null);
-                  setActiveBlockId(null);
+                  setActiveMenuTaskId(null);
+                  setActiveTaskId(null);
                 }}
                 className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ${
-                  completion?.status === 'completed'
+                  task?.completion_status === 'completed'
                     ? 'bg-green-600 border-green-600 text-white'
                     : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
                 }`}
-                title={completion?.status === 'completed' ? 'Click to unmark as completed' : 'Mark as completed'}
+                title={task?.completion_status === 'completed' ? 'Click to unmark as completed' : 'Mark as completed'}
               >
                 ✓
               </button>
               <button
                 onClick={() => {
-                  if (timeBlock) handleCompletion(timeBlock.id, 'failed');
+                  if (task) updateTaskStatus(task.id, 'failed');
                   setMenuPosition(null);
-                  setActiveMenuBlockId(null);
-                  setActiveBlockId(null);
+                  setActiveMenuTaskId(null);
+                  setActiveTaskId(null);
                 }}
                 className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ${
-                  completion?.status === 'failed'
+                  task?.completion_status === 'failed'
                     ? 'bg-red-600 border-red-600 text-white'
                     : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
                 }`}
-                title={completion?.status === 'failed' ? 'Click to unmark as failed' : 'Mark as failed'}
+                title={task?.completion_status === 'failed' ? 'Click to unmark as failed' : 'Mark as failed'}
               >
                 ✕
               </button>
               <button
                 onClick={() => {
-                  if (timeBlock) handleEdit(timeBlock);
+                  if (task) handleEdit(task);
                   setMenuPosition(null);
-                  setActiveMenuBlockId(null);
-                  setActiveBlockId(null);
+                  setActiveMenuTaskId(null);
+                  setActiveTaskId(null);
                 }}
                 className="w-6 h-6 rounded-full border border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white flex items-center justify-center transition-colors"
                 title="Edit time block"
@@ -1038,10 +1011,10 @@ export default function Schedule({ user, completions }: ScheduleProps) {
               </button>
               <button
                 onClick={() => {
-                  if (timeBlock) handleDelete(timeBlock.id);
+                  if (task) handleDelete(task.id);
                   setMenuPosition(null);
-                  setActiveMenuBlockId(null);
-                  setActiveBlockId(null);
+                  setActiveMenuTaskId(null);
+                  setActiveTaskId(null);
                 }}
                 className="w-6 h-6 rounded-full border border-red-500 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors"
                 title="Delete time block"
@@ -1066,19 +1039,31 @@ export default function Schedule({ user, completions }: ScheduleProps) {
       />
 
       {/* Confirmation Modal */}
-      <ConfirmationModal
-        isOpen={showDeleteModal}
-        onClose={() => {
-          setShowDeleteModal(false);
-          setTimeBlockToDelete(null);
-        }}
-        onConfirm={confirmDelete}
-        title="Delete Time Block"
-        message="Are you sure you want to delete this time block? This action cannot be undone."
-        confirmText="Delete"
-        cancelText="Cancel"
-        confirmButtonVariant="danger"
-      />
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
+          <div className="bg-slate-800 border border-slate-600 rounded-lg p-6 max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-white mb-4">Delete Time Block</h3>
+            <p className="text-slate-300 mb-6">Are you sure you want to delete this time block? This action cannot be undone.</p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setTaskToDelete(null);
+                }}
+                className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

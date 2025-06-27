@@ -154,84 +154,86 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
 
   const toggleTask = async (taskId: string, currentStatus: boolean) => {
     try {
-      const nowUTC = new Date().toISOString();
-      // If marking as completed, set completed_at to now (UTC)
-      // If marking as incomplete, set completed_at to null
-      const updateData = currentStatus 
-        ? { is_done: false, completed_at: null } 
-        : { is_done: true, completed_at: nowUTC, date: nowUTC.split('T')[0] };
-      
-      const { error } = await supabase
-        .from('tasks')
-        .update(updateData)
-        .eq('id', taskId)
-        .eq('user_id', user.id);
-
-      if (error) throw error;
-
-      setTasks(tasks.map(task => 
-        task.id === taskId ? { ...task, ...updateData } : task
-      ));
-
-      // Also update the corresponding time block completion status
       const task = tasks.find(t => t.id === taskId);
-      if (task) {
-        // Find time blocks with matching title
-        const { data: timeBlocks, error: timeBlocksError } = await supabase
-          .from('time_blocks')
-          .select('*')
-          .eq('user_id', user.id);
-        
-        if (!timeBlocksError && timeBlocks) {
-          const matchingTimeBlocks = timeBlocks.filter(tb => 
-            tb.title === task.title || 
-            tb.title === task.title.replace(/ \(\d{2}:\d{2} - \d{2}:\d{2}\)/, '')
-          );
+      if (!task) return;
 
-          for (const timeBlock of matchingTimeBlocks) {
-            // Check existing completion
-            const today = new Date().toISOString().split('T')[0];
-            const { data: existingCompletions, error: completionFetchError } = await supabase
-              .from('schedule_completions')
-              .select('*')
-              .eq('time_block_id', timeBlock.id)
-              .eq('date', today)
-              .eq('user_id', user.id);
-            
-            if (!completionFetchError) {
-              const existingCompletion = existingCompletions?.[0];
-              
-              if (!currentStatus) {
-                // Task is being marked as completed, so mark time block as completed
-                if (!existingCompletion || existingCompletion.status !== 'completed') {
-                  const { error: completionError } = await supabase
-                    .from('schedule_completions')
-                    .upsert([{ 
-                      time_block_id: timeBlock.id, 
-                      date: today, 
-                      status: 'completed',
-                      user_id: user.id 
-                    }]);
-                  if (completionError) {
-                    console.error('Error updating time block completion:', completionError);
-                  }
-                }
-              } else {
-                // Task is being marked as incomplete, so remove time block completion
-                if (existingCompletion && existingCompletion.status === 'completed') {
-                  const { error: completionError } = await supabase
-                    .from('schedule_completions')
-                    .delete()
-                    .eq('id', existingCompletion.id)
-                    .eq('user_id', user.id);
-                  if (completionError) {
-                    console.error('Error removing time block completion:', completionError);
-                  }
-                }
-              }
-            }
-          }
+      // For recurring tasks, create a daily instance for today
+      if (task.recur && task.recur !== 'once') {
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Check if a daily instance already exists for today
+        const existingDailyTask = tasks.find(t => 
+          t.title === task.title && 
+          t.date === today && 
+          t.start_time === task.start_time && 
+          t.end_time === task.end_time
+        );
+
+        if (existingDailyTask) {
+          // Update the existing daily instance
+          const { error } = await supabase
+            .from('tasks')
+            .update({ 
+              is_done: !currentStatus,
+              completed_at: !currentStatus ? new Date().toISOString() : null
+            })
+            .eq('id', existingDailyTask.id)
+            .eq('user_id', user.id);
+
+          if (error) throw error;
+
+          setTasks(tasks.map(t => 
+            t.id === existingDailyTask.id ? { 
+              ...t, 
+              is_done: !currentStatus,
+              completed_at: !currentStatus ? new Date().toISOString() : null
+            } : t
+          ));
+        } else {
+          // Create a new daily instance for today
+          const dailyTaskData = {
+            title: task.title,
+            description: task.description,
+            start_time: task.start_time,
+            end_time: task.end_time,
+            goal_id: task.goal_id,
+            date: today,
+            is_done: !currentStatus,
+            completed_at: !currentStatus ? new Date().toISOString() : null,
+            user_id: user.id,
+            // Don't copy recur fields - this is a one-time instance
+          };
+
+          const { data: newTask, error } = await supabase
+            .from('tasks')
+            .insert([dailyTaskData])
+            .select('*, goal:goals(*)')
+            .single();
+
+          if (error) throw error;
+
+          setTasks([newTask, ...tasks]);
         }
+      } else {
+        // For one-time tasks, update the original task
+        const { error } = await supabase
+          .from('tasks')
+          .update({ 
+            is_done: !currentStatus,
+            completed_at: !currentStatus ? new Date().toISOString() : null
+          })
+          .eq('id', taskId)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        setTasks(tasks.map(task => 
+          task.id === taskId ? { 
+            ...task, 
+            is_done: !currentStatus,
+            completed_at: !currentStatus ? new Date().toISOString() : null
+          } : task
+        ));
       }
     } catch (error) {
       console.error('Error updating task:', error);

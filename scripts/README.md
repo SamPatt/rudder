@@ -1,66 +1,45 @@
-# Database Scripts
+# Rudder Scripts
 
-This directory contains SQL migration scripts and data seeding templates for setting up the Rudder database.
+This directory contains utility scripts for the Rudder application.
 
-## Migration Scripts (Run in order)
-
-### 1. `update-schema.sql`
-Initial schema setup for basic tables (values, goals, tasks).
-
-### 2. `update-database.sql`
-Adds support for multiple goals per task by creating the `task_goals` junction table.
-
-### 3. `update-schedule-schema.sql`
-Adds schedule-related tables and functionality.
-
-### 4. `update-time-blocks-schema.sql`
-Updates time blocks to use start_time/end_time instead of start_hour/duration_m.
-
-### 5. `fix-time-blocks-schema.sql`
-Fixes any issues with the time blocks schema migration.
-
-### 6. `add-event-date.sql`
-Adds support for one-time events in the schedule.
-
-### 7. `add-recurring-tasks.sql`
-Adds support for recurring tasks (daily, weekly, custom days).
-
-## Data Seeding
+## Files
 
 ### `seed-data-template.ts`
-Template file for seeding initial values and goals. **Important: Customize this file** with your own values and goals before running.
+Template file for generating seed data. Contains sample values, goals, and tasks that can be used to populate a new database.
 
-The template currently contains:
-- A single example value: "Values"
-- Five example goals linked to that value
-
-You should replace these with your own meaningful values and goals.
-
-## Usage
-
-1. **Set up your database** by running the migration scripts in order (in your Supabase SQL editor)
-2. **Customize** `seed-data-template.ts` with your own values and goals
-3. **Run the seed script** to populate your database with initial data
-
-## Running the Seed Script
-
-```bash
-# First, customize the seed-data-template.ts file with your own values and goals
-# Then run it with Node.js:
-npx tsx scripts/seed-data-template.ts
-
-# Or if you have TypeScript set up:
-npx ts-node scripts/seed-data-template.ts
+**Usage:**
+```typescript
+import { generateSQL } from './seed-data-template';
+const sql = generateSQL('your-user-id-here');
+console.log(sql);
 ```
 
-## Environment Setup
+### `new-schema.sql`
+The current database schema for the unified tasks model. This creates the three main tables:
+- `values` - Core life principles
+- `goals` - Specific objectives aligned with values  
+- `tasks` - Unified task model (includes both regular tasks and scheduled time blocks)
 
-Make sure you have a `.env` file with your Supabase credentials:
-```
-VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON=your_supabase_anon_key
-```
+### `generate-icons.js`
+Utility script for generating PWA icons in various sizes.
 
-## Note
+### `build-test.sh`
+Build and test script for the application.
 
-The original `seed-data.ts` file contained personal data and has been removed. Use the template file instead and customize it for your own needs. 
+## Database Schema
+
+The current schema uses a unified approach with three main tables:
+
+1. **values** - User's core life principles
+2. **goals** - Specific objectives linked to values
+3. **tasks** - Unified task model that handles both regular tasks and scheduled time blocks
+
+This simplified approach eliminates the complexity of separate tables for time blocks, completions, and recurring tasks while maintaining all functionality.
+
+## Migration
+
+To set up a fresh database:
+
+1. Run `new-schema.sql` to create the tables
+2. Use `seed-data-template.ts` to generate sample data
+3. Insert the generated SQL to populate with sample data 

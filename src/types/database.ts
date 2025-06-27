@@ -2,48 +2,45 @@ export interface Value {
   id: string;
   name: string;
   created_at: string;
+  user_id: string;
 }
 
 export interface Goal {
   id: string;
-  value_id: string | null;
+  value_id: string;
   name: string;
   target_by?: string;
   created_at: string;
+  user_id: string;
   value?: Value;
-}
-
-export interface TaskGoal {
-  id: string;
-  task_id: string;
-  goal_id: string;
-  created_at: string;
-  goal?: Goal;
 }
 
 export interface Task {
   id: string;
   title: string;
   description?: string | null;
-  is_done: boolean;
-  is_recurring?: boolean;
-  recur_type?: 'daily' | 'weekdays' | 'weekly' | 'custom' | null;
+  
+  // Scheduling fields
+  start_time?: string | null;
+  end_time?: string | null;
+  recur?: 'once' | 'daily' | 'weekdays' | 'custom' | null;
   custom_days?: number[] | null;
+  event_date?: string | null;
+  
+  // Completion tracking
+  is_done: boolean;
+  completion_status?: 'completed' | 'skipped' | 'failed' | null;
+  
+  // Relationships
+  goal_id?: string | null;
+  
+  // Metadata
   date: string;
   created_at: string;
   completed_at?: string | null;
-  task_goals?: TaskGoal[];
-}
-
-export interface TimeBlock {
-  id: string;
-  title: string;
-  start_time: string;
-  end_time: string;
-  recur: string;
-  custom_days: number[] | null;
-  event_date: string | null;
-  created_at: string;
+  user_id: string;
+  
+  // Relationships (for queries)
   goal?: Goal;
 }
 
@@ -59,28 +56,58 @@ export interface Database {
   public: {
     Tables: {
       values: {
-        Row: Value;
-        Insert: Omit<Value, 'id' | 'created_at'>;
-        Update: Partial<Omit<Value, 'id' | 'created_at'>>;
+        Row: {
+          id: string;
+          name: string;
+          created_at: string;
+          user_id: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          created_at?: string;
+          user_id: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          created_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "values_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       goals: {
         Row: {
           id: string;
           name: string;
-          value_id: string | null;
+          value_id: string;
+          target_by?: string;
           created_at: string;
+          user_id: string;
         };
         Insert: {
           id?: string;
           name: string;
-          value_id?: string | null;
+          value_id: string;
+          target_by?: string;
           created_at?: string;
+          user_id: string;
         };
         Update: {
           id?: string;
           name?: string;
-          value_id?: string | null;
+          value_id?: string;
+          target_by?: string;
           created_at?: string;
+          user_id?: string;
         };
         Relationships: [
           {
@@ -88,6 +115,13 @@ export interface Database {
             columns: ["value_id"];
             isOneToOne: false;
             referencedRelation: "values";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "goals_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
             referencedColumns: ["id"];
           }
         ];
@@ -97,137 +131,66 @@ export interface Database {
           id: string;
           title: string;
           description: string | null;
-          is_done: boolean;
-          is_recurring: boolean;
-          recur_type: string | null;
+          start_time: string | null;
+          end_time: string | null;
+          recur: 'once' | 'daily' | 'weekdays' | 'custom' | null;
           custom_days: number[] | null;
+          event_date: string | null;
+          is_done: boolean;
+          completion_status: 'completed' | 'skipped' | 'failed' | null;
+          goal_id: string | null;
           date: string;
           created_at: string;
           completed_at: string | null;
+          user_id: string;
         };
         Insert: {
           id?: string;
           title: string;
           description?: string | null;
-          is_done?: boolean;
-          is_recurring?: boolean;
-          recur_type?: string | null;
+          start_time?: string | null;
+          end_time?: string | null;
+          recur?: 'once' | 'daily' | 'weekdays' | 'custom' | null;
           custom_days?: number[] | null;
-          date?: string;
+          event_date?: string | null;
+          is_done?: boolean;
+          completion_status?: 'completed' | 'skipped' | 'failed' | null;
+          goal_id?: string | null;
+          date: string;
           created_at?: string;
           completed_at?: string | null;
+          user_id: string;
         };
         Update: {
           id?: string;
           title?: string;
           description?: string | null;
-          is_done?: boolean;
-          is_recurring?: boolean;
-          recur_type?: string | null;
+          start_time?: string | null;
+          end_time?: string | null;
+          recur?: 'once' | 'daily' | 'weekdays' | 'custom' | null;
           custom_days?: number[] | null;
+          event_date?: string | null;
+          is_done?: boolean;
+          completion_status?: 'completed' | 'skipped' | 'failed' | null;
+          goal_id?: string | null;
           date?: string;
           created_at?: string;
           completed_at?: string | null;
-        };
-        Relationships: [];
-      };
-      task_goals: {
-        Row: {
-          id: string;
-          task_id: string;
-          goal_id: string;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          task_id: string;
-          goal_id: string;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          task_id?: string;
-          goal_id?: string;
-          created_at?: string;
+          user_id?: string;
         };
         Relationships: [
           {
-            foreignKeyName: "task_goals_goal_id_fkey";
+            foreignKeyName: "tasks_goal_id_fkey";
             columns: ["goal_id"];
             isOneToOne: false;
             referencedRelation: "goals";
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "task_goals_task_id_fkey";
-            columns: ["task_id"];
+            foreignKeyName: "tasks_user_id_fkey";
+            columns: ["user_id"];
             isOneToOne: false;
-            referencedRelation: "tasks";
-            referencedColumns: ["id"];
-          }
-        ];
-      };
-      time_blocks: {
-        Row: {
-          id: string;
-          title: string;
-          start_time: string;
-          end_time: string;
-          recur: string;
-          custom_days: number[] | null;
-          event_date: string | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          title: string;
-          start_time: string;
-          end_time: string;
-          recur: string;
-          custom_days?: number[] | null;
-          event_date?: string | null;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          title?: string;
-          start_time?: string;
-          end_time?: string;
-          recur?: string;
-          custom_days?: number[] | null;
-          event_date?: string | null;
-          created_at?: string;
-        };
-        Relationships: [];
-      };
-      schedule_completions: {
-        Row: {
-          id: string;
-          time_block_id: string;
-          date: string;
-          status: 'completed' | 'skipped' | 'failed';
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          time_block_id: string;
-          date: string;
-          status: 'completed' | 'skipped' | 'failed';
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          time_block_id?: string;
-          date?: string;
-          status?: 'completed' | 'skipped' | 'failed';
-          created_at?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "schedule_completions_time_block_id_fkey";
-            columns: ["time_block_id"];
-            isOneToOne: false;
-            referencedRelation: "time_blocks";
+            referencedRelation: "users";
             referencedColumns: ["id"];
           }
         ];

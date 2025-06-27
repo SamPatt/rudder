@@ -22,11 +22,7 @@ const values = [
 // Example goals - customize these for your own use
 const goals = [
   // Example goals - customize these for your own use
-  { name: 'Build useful things', value: 'Values' },
-  { name: 'Maintain & improve social relationships', value: 'Values' },
-  { name: 'Have a clean, organized home', value: 'Values' },
-  { name: 'Do meaningful work', value: 'Values' },
-  { name: 'Get / stay fit', value: 'Values' }
+  { name: 'Build useful things', value: 'Values' }
 ];
 
 async function seedData() {

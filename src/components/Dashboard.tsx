@@ -1,357 +1,181 @@
 import { useState, useEffect, useRef } from 'react';
-import { Task, Goal, TimeBlock, Value } from '../types/database';
+import { Task, Goal, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
 import GoalSelector from './GoalSelector';
-import type { Database } from '../types/database';
 import { User } from '@supabase/supabase-js';
-
-type TimeBlockRow = Database['public']['Tables']['time_blocks']['Row'];
 
 interface DashboardProps {
   tasks: Task[];
   goals: Goal[];
   values: Value[];
-  timeBlocks: TimeBlock[];
-  completions: any[];
   setTasks: (tasks: Task[]) => void;
-  setCompletions: React.Dispatch<React.SetStateAction<any[]>>;
   user: User;
 }
 
-type ScheduleCompletion = {
-  id: string;
-  time_block_id: string;
-  date: string;
-  status: 'completed' | 'skipped' | 'failed';
-  created_at: string;
-};
-
-export default function Dashboard({ tasks, goals, values, timeBlocks, completions, setTasks, setCompletions, user }: DashboardProps) {
-  const [completionsLoading, setCompletionsLoading] = useState(true);
+export default function Dashboard({ tasks, goals, values, setTasks, user }: DashboardProps) {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [showGoalSelector, setShowGoalSelector] = useState(false);
   const [isRecurring, setIsRecurring] = useState(false);
-  const [recurType, setRecurType] = useState<'daily' | 'weekdays' | 'weekly' | 'custom'>('daily');
+  const [recurType, setRecurType] = useState<'daily' | 'weekdays' | 'custom'>('daily');
   const [customDays, setCustomDays] = useState<number[]>([]);
-  const [previousTimeBlock, setPreviousTimeBlock] = useState<TimeBlockRow | null>(null);
-  const [currentTimeBlock, setCurrentTimeBlock] = useState<TimeBlockRow | null>(null);
-  const [nextTimeBlock, setNextTimeBlock] = useState<TimeBlockRow | null>(null);
-  const [animatingOutId, setAnimatingOutId] = useState<string | null>(null);
-  const [hiddenBlockIds, setHiddenBlockIds] = useState<string[]>([]);
-  const animationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const taskTitleInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    updateCurrentTimeBlock();
-    const interval = setInterval(() => {
-      updateCurrentTimeBlock();
-    }, 60000); // Update every minute
-    return () => clearInterval(interval);
-  }, [timeBlocks]);
+  const today = new Date().toISOString().split('T')[0];
 
-  // Refetch tasks when mounted or when a task is toggled
-  useEffect(() => {
-    const fetchTasks = async () => {
-      setCompletionsLoading(true);
-      const { data, error } = await supabase
-        .from('tasks')
-        .select(`*, task_goals (*, goal:goals (*, value:values (*)))`)
-        .order('created_at', { ascending: false });
-      if (!error && data) setTasks(data);
-      setCompletionsLoading(false);
-    };
-    fetchTasks();
-  }, []);
-
-  const updateCurrentTimeBlock = () => {
-    const now = new Date();
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
-
-    // Use the isScheduledForToday function to filter blocks
-    const todaysBlocks: TimeBlockRow[] = timeBlocks.filter(block => isScheduledForToday(block))
-      .sort((a, b) => a.start_time.localeCompare(b.start_time));
-
-    const currentMinutes = currentHour * 60 + currentMinute;
-    let previousBlock: TimeBlockRow | null = null;
-    let currentBlock: TimeBlockRow | null = null;
-    let nextBlock: TimeBlockRow | null = null;
-
-    for (let i = 0; i < todaysBlocks.length; i++) {
-      const block = todaysBlocks[i];
-      const [startHour, startMinute] = block.start_time.split(':').map(Number);
-      const [endHour, endMinute] = block.end_time.split(':').map(Number);
-      const blockStartMinutes = startHour * 60 + startMinute;
-      const blockEndMinutes = endHour * 60 + endMinute;
-
-      if (currentMinutes >= blockStartMinutes && currentMinutes < blockEndMinutes) {
-        currentBlock = block;
-      }
-      if (blockEndMinutes <= currentMinutes) {
-        // Find the most recent previous block (closest to current time)
-        if (!previousBlock || blockEndMinutes > (() => {
-          const [prevEndHour, prevEndMinute] = previousBlock.end_time.split(':').map(Number);
-          return prevEndHour * 60 + prevEndMinute;
-        })()) {
-          previousBlock = block;
-        }
-      }
-    }
-
-    // Find the next block (smallest start time after now)
-    nextBlock = todaysBlocks.find(block => {
-      const [startHour, startMinute] = block.start_time.split(':').map(Number);
-      const blockStartMinutes = startHour * 60 + startMinute;
-      return blockStartMinutes > currentMinutes;
-    }) || null;
-
-    setPreviousTimeBlock(previousBlock);
-    setCurrentTimeBlock(currentBlock);
-    setNextTimeBlock(nextBlock);
-  };
-
-  const getCompletionStatus = (timeBlockId: string): ScheduleCompletion | null => {
+  // Helper function to check if a task is scheduled for today
+  const isScheduledForToday = (task: Task): boolean => {
     const today = new Date().toISOString().split('T')[0];
-    const found = completions.find(c => c.time_block_id === timeBlockId && c.date === today);
-    return found || null;
-  };
-
-  // Helper function to get the days a time block is scheduled for
-  const getDaysForTimeBlock = (timeBlock: TimeBlockRow): number[] => {
-    if (timeBlock.custom_days) {
-      return timeBlock.custom_days;
+    
+    // For daily instances (non-recurring tasks with today's date), always show them
+    if (!task.recur && task.date === today) {
+      return true;
     }
     
-    switch (timeBlock.recur) {
+    // For one-time events, check event_date
+    if (task.recur === 'once') {
+      return task.event_date === today;
+    }
+    
+    // For recurring tasks, check if scheduled for today
+    if (task.recur) {
+      const dayOfWeek = new Date().getDay();
+      const days = getTaskDays(task);
+      return days.includes(dayOfWeek);
+    }
+    
+    // For regular tasks, check date
+    return task.date === today;
+  };
+
+  // Helper function to get the days a task is scheduled for
+  const getTaskDays = (task: Task) => {
+    if (!task.recur) return [];
+    
+    switch (task.recur) {
       case 'daily': return [0, 1, 2, 3, 4, 5, 6];
       case 'weekdays': return [1, 2, 3, 4, 5];
-      case 'weekly': return [1]; // Monday
+      case 'custom': return task.custom_days || [];
       default: return [];
     }
   };
 
-  // Helper function to check if a time block is scheduled for today
-  const isScheduledForToday = (timeBlock: TimeBlockRow): boolean => {
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    const dayOfWeek = today.getDay();
+  // Get tasks for the event cards (past due, current, upcoming)
+  const getEventTasks = () => {
+    const today = new Date().toISOString().split('T')[0];
     
-    // Don't show recurring events for dates before they were created
-    if (timeBlock.recur !== 'once' && timeBlock.created_at) {
-      const createdDate = new Date(timeBlock.created_at);
-      createdDate.setHours(0, 0, 0, 0);
-      
-      if (today < createdDate) {
-        return false;
+    // Get all tasks that are scheduled for today and have time data
+    const todaysTasks = tasks.filter(task => 
+      isScheduledForToday(task) && 
+      task.start_time && 
+      task.end_time
+    );
+    
+    if (todaysTasks.length === 0) {
+      return { pastDue: null, current: null, upcoming: null };
+    }
+    
+    // Group tasks by their key (title + start_time + end_time) and prioritize daily instances
+    const taskGroups: { [key: string]: Task[] } = {};
+    
+    todaysTasks.forEach(task => {
+      const key = `${task.title}-${task.start_time}-${task.end_time}`;
+      if (!taskGroups[key]) {
+        taskGroups[key] = [];
       }
-    }
+      taskGroups[key].push(task);
+    });
     
-    // Handle one-time events
-    if (timeBlock.recur === 'once' && timeBlock.event_date) {
-      const eventDateStr = new Date(timeBlock.event_date).toISOString().split('T')[0];
-      return eventDateStr === todayStr;
-    }
+    // For each group, prioritize daily instances over recurring tasks
+    const prioritizedTasks: Task[] = [];
     
-    // For recurring events, check if today's day of week is in the scheduled days
-    const days = getDaysForTimeBlock(timeBlock);
-    return days.includes(dayOfWeek);
-  };
-
-  function isPastDueIncomplete(block: TimeBlockRow | null): boolean {
-    if (!block) return false;
-    
-    // Check if the block is scheduled for today
-    if (!isScheduledForToday(block)) {
-      return false;
-    }
-    
-    const completion = getCompletionStatus(block.id);
-    if (completion && ['completed', 'failed', 'skipped'].includes(completion.status)) {
-      return false;
-    }
+    Object.values(taskGroups).forEach(group => {
+      // Find daily instance for today
+      const dailyInstance = group.find(task => 
+        task.date === today && 
+        !task.recur // This is a daily instance, not a recurring task
+      );
+      
+      // Find recurring task
+      const recurringTask = group.find(task => 
+        task.recur && 
+        task.recur !== 'once'
+      );
+      
+      // If we have a daily instance for today, use it
+      if (dailyInstance) {
+        prioritizedTasks.push(dailyInstance);
+      } 
+      // Otherwise, if we have a recurring task, use it
+      else if (recurringTask) {
+        prioritizedTasks.push(recurringTask);
+      }
+      // For one-time tasks, always include them
+      else {
+        const oneTimeTask = group.find(task => task.recur === 'once');
+        if (oneTimeTask) {
+          prioritizedTasks.push(oneTimeTask);
+        }
+      }
+    });
     
     const now = new Date();
-    const [endHour, endMinute] = block.end_time.split(':').map(Number);
-    const endTime = new Date();
-    endTime.setHours(endHour, endMinute, 0, 0);
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const currentMinutes = currentHour * 60 + currentMinute;
     
-    return now > endTime;
-  }
-
-  const handleCompletion = async (timeBlockId: string, status: 'completed' | 'skipped' | 'failed') => {
-    if (previousTimeBlock && previousTimeBlock.id === timeBlockId && isPastDueIncomplete(previousTimeBlock)) {
-      setAnimatingOutId(timeBlockId);
-      if (animationTimeoutRef.current) clearTimeout(animationTimeoutRef.current);
-      animationTimeoutRef.current = setTimeout(() => {
-        setAnimatingOutId(null);
-        setHiddenBlockIds(ids => [...ids, timeBlockId]);
-        actuallyHandleCompletion(timeBlockId, status);
-      }, 400); // 400ms fade out
-      return;
-    }
-    actuallyHandleCompletion(timeBlockId, status);
-  };
-
-  const actuallyHandleCompletion = async (timeBlockId: string, status: 'completed' | 'skipped' | 'failed') => {
-    const today = new Date().toISOString().split('T')[0];
-    const existingCompletion = getCompletionStatus(timeBlockId);
+    let pastDue = null;
+    let current = null;
+    let upcoming = null;
     
-    // Optimistic update - immediately update the UI
-    if (existingCompletion && existingCompletion.status === status) {
-      // Toggle off - remove the completion
-      setCompletions(prev => prev.filter(c => c.id !== existingCompletion.id));
-    } else if (existingCompletion) {
-      // Update existing completion to new status
-      setCompletions(prev => prev.map(c => c.id === existingCompletion.id ? { ...c, status } : c));
-    } else {
-      // Create new completion
-      const optimisticCompletion = {
-        id: `temp-${Date.now()}`, // Temporary ID
-        time_block_id: timeBlockId,
-        date: today,
-        status,
-        created_at: new Date().toISOString(),
-        user_id: user.id
-      };
-      setCompletions(prev => [optimisticCompletion, ...prev]);
-    }
+    // Sort tasks by start time
+    const sortedTasks = prioritizedTasks.sort((a, b) => {
+      const aStart = a.start_time!.split(':').map(Number);
+      const bStart = b.start_time!.split(':').map(Number);
+      return (aStart[0] * 60 + aStart[1]) - (bStart[0] * 60 + bStart[1]);
+    });
     
-    // If clicking the same status that's already active, reset it (delete the completion)
-    if (existingCompletion && existingCompletion.status === status) {
-      const { error } = await supabase
-        .from('schedule_completions')
-        .delete()
-        .eq('id', existingCompletion.id)
-        .eq('user_id', user.id);
-      if (error) {
-        // Revert optimistic update on error
-        setCompletions(prev => [...prev, existingCompletion]);
-        return;
-      }
-    } else if (existingCompletion) {
-      // Update existing completion to new status
-      const { error } = await supabase
-        .from('schedule_completions')
-        .update({ status })
-        .eq('id', existingCompletion.id)
-        .eq('user_id', user.id);
-      if (error) {
-        // Revert optimistic update on error
-        setCompletions(prev => prev.map(c => c.id === existingCompletion.id ? existingCompletion : c));
-        return;
-      }
-    } else {
-      // Create new completion
-      const { data, error } = await supabase
-        .from('schedule_completions')
-        .insert([{ time_block_id: timeBlockId, date: today, status, user_id: user.id }])
-        .select()
-        .single();
-      if (error) {
-        // Revert optimistic update on error
-        setCompletions(prev => prev.filter(c => !c.id.startsWith('temp-')));
-        return;
-      }
-      // Replace temporary ID with real ID
-      if (data) {
-        setCompletions(prev => prev.map(c => c.id.startsWith('temp-') ? data : c));
+    // Find current task (task that is happening right now) - always show regardless of completion
+    for (const task of sortedTasks) {
+      const [startHour, startMinute] = task.start_time!.split(':').map(Number);
+      const [endHour, endMinute] = task.end_time!.split(':').map(Number);
+      const taskStartMinutes = startHour * 60 + startMinute;
+      const taskEndMinutes = endHour * 60 + endMinute;
+      
+      if (currentMinutes >= taskStartMinutes && currentMinutes < taskEndMinutes) {
+        current = task;
+        break;
       }
     }
     
-    if (status === 'completed') {
-      const timeBlock = timeBlocks.find(tb => tb.id === timeBlockId);
-      if (timeBlock) {
-        // First, try to find an existing task with the same title for today
-        const { data: existingTasks, error: taskFetchError } = await supabase
-          .from('tasks')
-          .select('*')
-          .eq('title', timeBlock.title)
-          .eq('date', today)
-          .eq('user_id', user.id);
-        
-        if (!taskFetchError && existingTasks && existingTasks.length > 0) {
-          // Update existing task to completed
-          const taskId = existingTasks[0].id;
-          await supabase
-            .from('tasks')
-            .update({ is_done: true })
-            .eq('id', taskId)
-            .eq('user_id', user.id);
-        } else {
-          // Create a new task for today
-          const { error: taskError } = await supabase
-            .from('tasks')
-            .insert([{ 
-              title: `${timeBlock.title} (${timeBlock.start_time} - ${timeBlock.end_time})`, 
-              is_done: true,
-              date: today,
-              user_id: user.id,
-            }]);
-          if (taskError) {
-            console.error('Error creating task:', taskError);
-          }
-        }
+    // Find past due task (most recent task that has ended and is not done and not failed)
+    for (let i = sortedTasks.length - 1; i >= 0; i--) {
+      const task = sortedTasks[i];
+      const [endHour, endMinute] = task.end_time!.split(':').map(Number);
+      const taskEndMinutes = endHour * 60 + endMinute;
+      
+      // Only show as past due if not done, not failed, and not the current task
+      if (currentMinutes > taskEndMinutes && 
+          !task.is_done && 
+          task.completion_status !== 'failed' && 
+          task !== current) {
+        pastDue = task;
+        break;
       }
-    }
-    // Note: Real-time subscriptions will handle updating the completions state
-  };
-
-  const getBlockStatusColor = (timeBlock: TimeBlockRow) => {
-    const completion = getCompletionStatus(timeBlock.id);
-    if (!completion) {
-      // Only show past due if the block is scheduled for today
-      if (isScheduledForToday(timeBlock)) {
-        const now = new Date();
-        const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
-        const endTime = new Date();
-        endTime.setHours(endHour, endMinute, 0, 0);
-        if (now > endTime) {
-          return 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-black opacity-80'; // Brighter yellow, animated, de-emphasized
-        }
-      }
-      return 'bg-slate-700 border-slate-600'; // Future or current
     }
     
-    switch (completion.status) {
-      case 'completed':
-        return 'bg-green-900 border-green-600';
-      case 'failed':
-        return 'bg-red-900 border-red-600';
-      case 'skipped':
-        return 'bg-red-900 border-red-600';
-      default:
-        return 'bg-slate-700 border-slate-600';
-    }
-  };
-
-  const getBlockStatusText = (timeBlock: TimeBlockRow) => {
-    const completion = getCompletionStatus(timeBlock.id);
-    if (!completion) {
-      // Only show past due if the block is scheduled for today
-      if (isScheduledForToday(timeBlock)) {
-        const now = new Date();
-        const [endHour, endMinute] = timeBlock.end_time.split(':').map(Number);
-        const endTime = new Date();
-        endTime.setHours(endHour, endMinute, 0, 0);
-        
-        if (now > endTime) {
-          return 'Past due';
-        }
+    // Find upcoming task (next task that hasn't started yet and is not done)
+    for (const task of sortedTasks) {
+      const [startHour, startMinute] = task.start_time!.split(':').map(Number);
+      const taskStartMinutes = startHour * 60 + startMinute;
+      
+      if (currentMinutes < taskStartMinutes && !task.is_done && task !== current) {
+        upcoming = task;
+        break;
       }
-      return '';
     }
     
-    switch (completion.status) {
-      case 'completed':
-        return 'Completed';
-      case 'failed':
-        return 'Failed';
-      case 'skipped':
-        return 'Skipped';
-      default:
-        return '';
-    }
+    return { pastDue, current, upcoming };
   };
 
   const handleAddTask = () => {
@@ -365,7 +189,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
     const todayStr = today.toISOString().split('T')[0];
     
     if (!isRecurring) {
-      // For one-time tasks, use today's date
       return todayStr;
     }
     
@@ -386,14 +209,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
           nextMonday.setDate(today.getDate() + daysUntilMonday);
           return nextMonday.toISOString().split('T')[0];
         }
-      
-      case 'weekly':
-        // For weekly (Monday), find next Monday
-        const currentDay = today.getDay();
-        const daysUntilMonday = currentDay === 1 ? 0 : (8 - currentDay) % 7;
-        const nextMonday = new Date(today);
-        nextMonday.setDate(today.getDate() + daysUntilMonday);
-        return nextMonday.toISOString().split('T')[0];
       
       case 'custom':
         if (customDays.length === 0) {
@@ -419,54 +234,23 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
       const insertPayload = {
         title: newTaskTitle,
         is_done: false,
-        is_recurring: isRecurring,
-        recur_type: isRecurring ? recurType : null,
+        recur: isRecurring ? recurType : null,
         custom_days: isRecurring && recurType === 'custom' ? customDays : null,
         date: taskDate,
+        goal_id: goalIds.length > 0 ? goalIds[0] : null,
         user_id: user.id,
       };
-      console.log('Inserting task with payload:', insertPayload, 'User:', user);
-      // Create the task first
+
+      // Create the task
       const { data: task, error: taskError } = await supabase
         .from('tasks')
         .insert(insertPayload)
-        .select()
+        .select('*, goal:goals(*)')
         .single();
 
       if (taskError) throw taskError;
 
-      // Add goal relationships if any goals were selected
-      if (goalIds.length > 0) {
-        const taskGoals = goalIds.map(goalId => ({
-          task_id: task.id,
-          goal_id: goalId,
-          user_id: user.id,
-        }));
-        const { error: goalError } = await supabase
-          .from('task_goals')
-          .insert(taskGoals);
-        if (goalError) throw goalError;
-      }
-
-      // Fetch the task with its goals
-      const { data: taskWithGoals, error: fetchError } = await supabase
-        .from('tasks')
-        .select(`
-          *,
-          task_goals (
-            *,
-            goal:goals (
-              *,
-              value:values (*)
-            )
-          )
-        `)
-        .eq('id', task.id)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      setTasks([taskWithGoals, ...tasks]);
+      setTasks([task, ...tasks]);
       setNewTaskTitle('');
       setIsRecurring(false);
       setRecurType('daily');
@@ -479,96 +263,183 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
 
   const toggleTask = async (taskId: string, currentStatus: boolean) => {
     try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({ is_done: !currentStatus })
-        .eq('id', taskId)
-        .eq('user_id', user.id);
-
-      if (error) throw error;
-
-      setTasks(tasks.map(task => 
-        task.id === taskId ? { ...task, is_done: !currentStatus } : task
-      ));
-
-      // Also update the corresponding time block completion status
       const task = tasks.find(t => t.id === taskId);
-      if (task) {
+      if (!task) return;
+
+      // For recurring tasks, create a daily instance for today
+      if (task.recur && task.recur !== 'once') {
         const today = new Date().toISOString().split('T')[0];
         
-        // Find time blocks with matching title
-        const matchingTimeBlocks = timeBlocks.filter(tb => 
-          tb.title === task.title || 
-          tb.title === task.title.replace(/ \(\d{2}:\d{2} - \d{2}:\d{2}\)/, '')
+        // Check if a daily instance already exists for today
+        const existingDailyTask = tasks.find(t => 
+          t.title === task.title && 
+          t.date === today && 
+          t.start_time === task.start_time && 
+          t.end_time === task.end_time
         );
 
-        for (const timeBlock of matchingTimeBlocks) {
-          const existingCompletion = getCompletionStatus(timeBlock.id);
-          
-          if (!currentStatus) {
-            // Task is being marked as completed, so mark time block as completed
-            if (!existingCompletion || existingCompletion.status !== 'completed') {
-              const { error: completionError } = await supabase
-                .from('schedule_completions')
-                .upsert([{ 
-                  time_block_id: timeBlock.id, 
-                  date: today, 
-                  status: 'completed',
-                  user_id: user.id 
-                }]);
-              if (completionError) {
-                console.error('Error updating time block completion:', completionError);
-              }
-            }
-          } else {
-            // Task is being marked as incomplete, so remove time block completion
-            if (existingCompletion && existingCompletion.status === 'completed') {
-              const { error: completionError } = await supabase
-                .from('schedule_completions')
-                .delete()
-                .eq('id', existingCompletion.id)
-                .eq('user_id', user.id);
-              if (completionError) {
-                console.error('Error removing time block completion:', completionError);
-              }
-            }
-          }
+        if (existingDailyTask) {
+          // Update the existing daily instance
+          const { error } = await supabase
+            .from('tasks')
+            .update({ 
+              is_done: !currentStatus,
+              completed_at: !currentStatus ? new Date().toISOString() : null
+            })
+            .eq('id', existingDailyTask.id)
+            .eq('user_id', user.id);
+
+          if (error) throw error;
+
+          setTasks(tasks.map(t => 
+            t.id === existingDailyTask.id ? { 
+              ...t, 
+              is_done: !currentStatus,
+              completed_at: !currentStatus ? new Date().toISOString() : null
+            } : t
+          ));
+        } else {
+          // Create a new daily instance for today
+          const dailyTaskData = {
+            title: task.title,
+            description: task.description,
+            start_time: task.start_time,
+            end_time: task.end_time,
+            goal_id: task.goal_id,
+            date: today,
+            is_done: !currentStatus,
+            completed_at: !currentStatus ? new Date().toISOString() : null,
+            user_id: user.id,
+            // Don't copy recur fields - this is a one-time instance
+          };
+
+          const { data: newTask, error } = await supabase
+            .from('tasks')
+            .insert([dailyTaskData])
+            .select('*, goal:goals(*)')
+            .single();
+
+          if (error) throw error;
+
+          setTasks([newTask, ...tasks]);
         }
+      } else {
+        // For one-time tasks, update the original task
+        const { error } = await supabase
+          .from('tasks')
+          .update({ 
+            is_done: !currentStatus,
+            completed_at: !currentStatus ? new Date().toISOString() : null
+          })
+          .eq('id', taskId)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        setTasks(tasks.map(task => 
+          task.id === taskId ? { 
+            ...task, 
+            is_done: !currentStatus,
+            completed_at: !currentStatus ? new Date().toISOString() : null
+          } : task
+        ));
       }
     } catch (error) {
       console.error('Error updating task:', error);
     }
   };
 
-  // Helper functions to organize tasks
-  const getDailyTasks = () => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    
-    return tasks.filter(task => {
-      // Only include recurring tasks that are not done
-      if (!task.is_recurring || task.is_done) {
-        return false;
-      }
+  const updateTaskStatus = async (taskId: string, status: 'completed' | 'skipped' | 'failed') => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const task = tasks.find(t => t.id === taskId);
       
-      // Check if the task is scheduled for today based on its recurrence pattern
-      let isScheduledToday = false;
-      if (task.recur_type === 'daily') {
-        isScheduledToday = true;
-      } else if (task.recur_type === 'weekdays' && dayOfWeek >= 1 && dayOfWeek <= 5) {
-        isScheduledToday = true;
-      } else if (task.recur_type === 'weekly' && task.custom_days && task.custom_days.includes(dayOfWeek)) {
-        isScheduledToday = true;
-      } else if (task.recur_type === 'custom' && task.custom_days && task.custom_days.includes(dayOfWeek)) {
-        isScheduledToday = true;
-      }
-      
-      return isScheduledToday;
-    });
-  };
+      if (!task) return;
 
-  const getTodaysTasks = () => {
-    return tasks.filter(task => !task.is_recurring && !task.is_done);
+      // For recurring tasks, create a daily instance for today
+      if (task.recur && task.recur !== 'once') {
+        // Check if a daily instance already exists for today
+        const existingDailyTask = tasks.find(t => 
+          t.title === task.title && 
+          t.date === today && 
+          t.start_time === task.start_time && 
+          t.end_time === task.end_time
+        );
+
+        if (existingDailyTask) {
+          // Update the existing daily instance
+          const { error } = await supabase
+            .from('tasks')
+            .update({ 
+              completion_status: status,
+              is_done: status === 'completed',
+              completed_at: status === 'completed' ? new Date().toISOString() : null
+            })
+            .eq('id', existingDailyTask.id)
+            .eq('user_id', user.id);
+
+          if (error) throw error;
+
+          setTasks(tasks.map(t => 
+            t.id === existingDailyTask.id ? { 
+              ...t, 
+              completion_status: status,
+              is_done: status === 'completed',
+              completed_at: status === 'completed' ? new Date().toISOString() : null
+            } : t
+          ));
+        } else {
+          // Create a new daily instance for today
+          const dailyTaskData = {
+            title: task.title,
+            description: task.description,
+            start_time: task.start_time,
+            end_time: task.end_time,
+            goal_id: task.goal_id,
+            date: today,
+            completion_status: status,
+            is_done: status === 'completed',
+            completed_at: status === 'completed' ? new Date().toISOString() : null,
+            user_id: user.id,
+            // Don't copy recur fields - this is a one-time instance
+          };
+
+          const { data: newTask, error } = await supabase
+            .from('tasks')
+            .insert([dailyTaskData])
+            .select('*, goal:goals(*)')
+            .single();
+
+          if (error) throw error;
+
+          setTasks([newTask, ...tasks]);
+        }
+      } else {
+        // For one-time tasks, update the original task
+        const { error } = await supabase
+          .from('tasks')
+          .update({ 
+            completion_status: status,
+            is_done: status === 'completed',
+            completed_at: status === 'completed' ? new Date().toISOString() : null
+          })
+          .eq('id', taskId)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        setTasks(tasks.map(t => 
+          t.id === taskId ? { 
+            ...t, 
+            completion_status: status,
+            is_done: status === 'completed',
+            completed_at: status === 'completed' ? new Date().toISOString() : null
+          } : t
+        ));
+      }
+    } catch (error) {
+      console.error('Error updating task status:', error);
+    }
   };
 
   const handleDayToggle = (dayValue: number) => {
@@ -589,23 +460,70 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
     { value: 6, short: 'Sat', long: 'Saturday' },
   ];
 
-  // Add a 12-hour time formatter for the dashboard
-  const formatTime = (t: string) => {
-    if (!t) return '';
-    let [hour, minute] = t.split(':').map(Number);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    hour = hour % 12;
-    if (hour === 0) hour = 12;
-    return `${hour}:${minute.toString().padStart(2, '0')} ${ampm}`;
+  // Get today's tasks (recurring or one-time events due today)
+  const getTodaysTasks = () => {
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Group tasks by their key (title + start_time + end_time) and prioritize daily instances
+    const taskGroups: { [key: string]: Task[] } = {};
+    
+    tasks.forEach(task => {
+      const key = `${task.title}-${task.start_time}-${task.end_time}`;
+      if (!taskGroups[key]) {
+        taskGroups[key] = [];
+      }
+      taskGroups[key].push(task);
+    });
+    
+    const result: Task[] = [];
+    
+    Object.values(taskGroups).forEach(group => {
+      // Find daily instance for today
+      const dailyInstance = group.find(task => 
+        task.date === today && 
+        !task.recur // This is a daily instance, not a recurring task
+      );
+      
+      // Find recurring task
+      const recurringTask = group.find(task => 
+        task.recur && 
+        task.recur !== 'once' &&
+        isScheduledForToday(task)
+      );
+      
+      // If we have a daily instance for today, use it
+      if (dailyInstance) {
+        result.push(dailyInstance);
+      } 
+      // Otherwise, if we have a recurring task scheduled for today, use it
+      else if (recurringTask) {
+        result.push(recurringTask);
+      }
+      // For one-time tasks, always include them if scheduled for today
+      else {
+        const oneTimeTask = group.find(task => 
+          task.recur === 'once' && 
+          isScheduledForToday(task)
+        );
+        if (oneTimeTask) {
+          result.push(oneTimeTask);
+        }
+      }
+    });
+    
+    return result;
   };
 
-  // When timeBlocks change (e.g., after deletion), remove any hiddenBlockIds that no longer exist
-  useEffect(() => {
-    setHiddenBlockIds(ids => ids.filter(id => timeBlocks.some(tb => tb.id === id)));
-  }, [timeBlocks]);
+  // Get to-do list (tasks without a specific date)
+  const getTodoListTasks = () => {
+    return tasks.filter(task => !task.date && !task.is_done);
+  };
 
-  // Only show previous/current/next cards if the block exists in timeBlocks and is not hidden
-  const blockExists = (block: TimeBlockRow | null) => block && timeBlocks.some(tb => tb.id === block.id);
+  // Calculate statistics
+  const todaysTasks = getTodaysTasks();
+  const completedToday = todaysTasks.filter(task => task.is_done);
+  const totalTasks = todaysTasks.length;
+  const completionRate = totalTasks > 0 ? Math.round((completedToday.length / totalTasks) * 100) : 0;
 
   // Focus the input when expanding
   useEffect(() => {
@@ -614,47 +532,59 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
     }
   }, [showQuickAdd]);
 
+  const { pastDue, current, upcoming } = getEventTasks();
+
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return date.toDateString() === today.toDateString();
+  };
+
+  // Format time in 12-hour format
+  const formatTime = (time: string) => {
+    if (!time) return '';
+    const [hours, minutes] = time.split(':').map(Number);
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+  };
+
+  // Get status text for current task
+  const getCurrentTaskStatus = (task: Task) => {
+    if (task.completion_status === 'completed') return 'Completed';
+    if (task.completion_status === 'failed') return 'Failed';
+    if (task.completion_status === 'skipped') return 'Skipped';
+    return '';
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Time Blocks Overview - Only show up to three cards, no header */}
-      {!completionsLoading && (previousTimeBlock || currentTimeBlock || nextTimeBlock) && (
+      {(pastDue || current || upcoming) && (
         <div className="space-y-3">
           {/* Previous Time Block */}
-          {isPastDueIncomplete(previousTimeBlock) && previousTimeBlock && previousTimeBlock.id !== animatingOutId && !hiddenBlockIds.includes(previousTimeBlock.id) && blockExists(previousTimeBlock) && (
-            <div className={`p-3 sm:p-4 rounded-lg border ${getBlockStatusColor(previousTimeBlock)} transition-opacity duration-400 ${animatingOutId === previousTimeBlock.id ? 'opacity-0' : 'opacity-100'}`}>
+          {pastDue && (
+            <div className="p-3 sm:p-4 rounded-lg border animate-yellow-gradient bg-yellow-300 border-yellow-500 text-black opacity-80">
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
-                  <h4 className={`text-base sm:text-lg font-medium truncate
-                    ${getBlockStatusColor(previousTimeBlock).includes('yellow') ? 'text-black' : 'text-slate-300'}`}>{previousTimeBlock.title}</h4>
-                  <p className={`text-sm ${getBlockStatusColor(previousTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-gray-500'}`}>
-                    {formatTime(previousTimeBlock.start_time)} - {formatTime(previousTimeBlock.end_time)}
+                  <h4 className="text-base sm:text-lg font-medium truncate">{pastDue.title}</h4>
+                  <p className="text-sm text-gray-800">
+                    {formatTime(pastDue.start_time)} - {formatTime(pastDue.end_time)}
                   </p>
-                  {getBlockStatusText(previousTimeBlock) && (
-                    <p className={`text-xs mt-1 ${getBlockStatusColor(previousTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-gray-400'}`}>{getBlockStatusText(previousTimeBlock)}</p>
-                  )}
                 </div>
                 <div className="flex gap-2 ml-2 flex-shrink-0">
                   <button
-                    onClick={() => handleCompletion(previousTimeBlock.id, 'completed')}
-                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                      getCompletionStatus(previousTimeBlock.id)?.status === 'completed'
-                        ? 'bg-green-600 border-green-600 text-white'
-                        : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
-                    }`}
-                    title={getCompletionStatus(previousTimeBlock.id)?.status === 'completed' ? 'Click to unmark as completed' : 'Mark as completed'}
+                    onClick={() => updateTaskStatus(pastDue.id, 'completed')}
+                    className="w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors border-green-500 text-green-500 hover:bg-green-500 hover:text-white"
+                    title="Mark as completed"
                   >
-                    {getCompletionStatus(previousTimeBlock.id)?.status === 'completed' && '✓'}
+                    ✓
                   </button>
                   <button
-                    onClick={() => handleCompletion(previousTimeBlock.id, 'failed')}
-                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                      getCompletionStatus(previousTimeBlock.id)?.status === 'failed'
-                        ? 'bg-red-600 border-red-600 text-white'
-                        : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
-                    }`}
-                    title={getCompletionStatus(previousTimeBlock.id)?.status === 'failed' ? 'Click to unmark as failed' : 'Mark as failed'}
+                    onClick={() => updateTaskStatus(pastDue.id, 'failed')}
+                    className="w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors border-red-500 text-red-500 hover:bg-red-500 hover:text-white"
+                    title="Mark as failed"
                   >
-                    {getCompletionStatus(previousTimeBlock.id)?.status === 'failed' && '✕'}
+                    ✕
                   </button>
                 </div>
               </div>
@@ -662,41 +592,34 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
           )}
 
           {/* Current Time Block - use same color/animation as schedule */}
-          {currentTimeBlock && blockExists(currentTimeBlock) && !hiddenBlockIds.includes(currentTimeBlock.id) && (
+          {current && (
             <div className="border-orange-400 animate-gradient-slow bg-slate-800 border rounded-lg p-3 sm:p-4">
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
-                  <h4 className={`text-lg sm:text-xl font-medium truncate
-                    ${getBlockStatusColor(currentTimeBlock).includes('yellow') ? 'text-black' : 'text-orange-100'}`}>{currentTimeBlock.title}</h4>
-                  <p className={`text-sm ${getBlockStatusColor(currentTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-orange-200'}`}>
-                    {formatTime(currentTimeBlock.start_time)} - {formatTime(currentTimeBlock.end_time)}
+                  <h4 className="text-lg sm:text-xl font-medium truncate">{current.title}</h4>
+                  <p className="text-sm text-orange-200">
+                    {formatTime(current.start_time)} - {formatTime(current.end_time)}
                   </p>
-                  {getBlockStatusText(currentTimeBlock) && (
-                    <p className={`text-xs mt-1 ${getBlockStatusColor(currentTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-orange-200'}`}>{getBlockStatusText(currentTimeBlock)}</p>
+                  {getCurrentTaskStatus(current) && (
+                    <p className="text-xs mt-1 text-orange-200">
+                      {getCurrentTaskStatus(current)}
+                    </p>
                   )}
                 </div>
                 <div className="flex gap-2 ml-2 flex-shrink-0">
                   <button
-                    onClick={() => handleCompletion(currentTimeBlock.id, 'completed')}
-                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 flex items-center justify-center transition-colors ${
-                      getCompletionStatus(currentTimeBlock.id)?.status === 'completed'
-                        ? 'bg-green-600 border-green-600 text-white'
-                        : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
-                    }`}
-                    title={getCompletionStatus(currentTimeBlock.id)?.status === 'completed' ? 'Click to unmark as completed' : 'Mark as completed'}
+                    onClick={() => updateTaskStatus(current.id, 'completed')}
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 flex items-center justify-center transition-colors border-green-500 text-green-500 hover:bg-green-500 hover:text-white"
+                    title="Mark as completed"
                   >
-                    {getCompletionStatus(currentTimeBlock.id)?.status === 'completed' && '✓'}
+                    ✓
                   </button>
                   <button
-                    onClick={() => handleCompletion(currentTimeBlock.id, 'failed')}
-                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 flex items-center justify-center transition-colors ${
-                      getCompletionStatus(currentTimeBlock.id)?.status === 'failed'
-                        ? 'bg-red-600 border-red-600 text-white'
-                        : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
-                    }`}
-                    title={getCompletionStatus(currentTimeBlock.id)?.status === 'failed' ? 'Click to unmark as failed' : 'Mark as failed'}
+                    onClick={() => updateTaskStatus(current.id, 'failed')}
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 flex items-center justify-center transition-colors border-red-500 text-red-500 hover:bg-red-500 hover:text-white"
+                    title="Mark as failed"
                   >
-                    {getCompletionStatus(currentTimeBlock.id)?.status === 'failed' && '✕'}
+                    ✕
                   </button>
                 </div>
               </div>
@@ -704,41 +627,29 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
           )}
 
           {/* Next Time Block (if still today) */}
-          {nextTimeBlock && blockExists(nextTimeBlock) && !hiddenBlockIds.includes(nextTimeBlock.id) && (
-            <div className={`p-3 sm:p-4 rounded-lg border ${getBlockStatusColor(nextTimeBlock)}`}>
+          {upcoming && (
+            <div className="p-3 sm:p-4 rounded-lg border">
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
-                  <h4 className={`text-base sm:text-lg font-medium truncate
-                    ${getBlockStatusColor(nextTimeBlock).includes('yellow') ? 'text-black' : 'text-slate-200'}`}>{nextTimeBlock.title}</h4>
-                  <p className={`text-sm ${getBlockStatusColor(nextTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-gray-400'}`}>
-                    {formatTime(nextTimeBlock.start_time)} - {formatTime(nextTimeBlock.end_time)}
+                  <h4 className="text-base sm:text-lg font-medium truncate">{upcoming.title}</h4>
+                  <p className="text-sm text-gray-400">
+                    {formatTime(upcoming.start_time)} - {formatTime(upcoming.end_time)}
                   </p>
-                  {getBlockStatusText(nextTimeBlock) && (
-                    <p className={`text-xs mt-1 ${getBlockStatusColor(nextTimeBlock).includes('yellow') ? 'text-gray-800' : 'text-gray-300'}`}>{getBlockStatusText(nextTimeBlock)}</p>
-                  )}
                 </div>
                 <div className="flex gap-2 ml-2 flex-shrink-0">
                   <button
-                    onClick={() => handleCompletion(nextTimeBlock.id, 'completed')}
-                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                      getCompletionStatus(nextTimeBlock.id)?.status === 'completed'
-                        ? 'bg-green-600 border-green-600 text-white'
-                        : 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
-                    }`}
-                    title={getCompletionStatus(nextTimeBlock.id)?.status === 'completed' ? 'Click to unmark as completed' : 'Mark as completed'}
+                    onClick={() => updateTaskStatus(upcoming.id, 'completed')}
+                    className="w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors border-green-500 text-green-500 hover:bg-green-500 hover:text-white"
+                    title="Mark as completed"
                   >
-                    {getCompletionStatus(nextTimeBlock.id)?.status === 'completed' && '✓'}
+                    ✓
                   </button>
                   <button
-                    onClick={() => handleCompletion(nextTimeBlock.id, 'failed')}
-                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                      getCompletionStatus(nextTimeBlock.id)?.status === 'failed'
-                        ? 'bg-red-600 border-red-600 text-white'
-                        : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
-                    }`}
-                    title={getCompletionStatus(nextTimeBlock.id)?.status === 'failed' ? 'Click to unmark as failed' : 'Mark as failed'}
+                    onClick={() => updateTaskStatus(upcoming.id, 'failed')}
+                    className="w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors border-red-500 text-red-500 hover:bg-red-500 hover:text-white"
+                    title="Mark as failed"
                   >
-                    {getCompletionStatus(nextTimeBlock.id)?.status === 'failed' && '✕'}
+                    ✕
                   </button>
                 </div>
               </div>
@@ -803,7 +714,6 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
                     >
                       <option value="daily">Daily</option>
                       <option value="weekdays">Weekdays</option>
-                      <option value="weekly">Weekly</option>
                       <option value="custom">Custom Days</option>
                     </select>
                   </div>
@@ -841,14 +751,14 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
       <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
         
         {/* Frequent Tasks Section */}
-        {getDailyTasks().length > 0 && (
+        {todaysTasks.length > 0 && (
           <div className="mb-6">
             <h3 className="text-md font-medium text-forest-300 mb-3 flex items-center">
               <span className="mr-2">🔄</span>
               Frequent
             </h3>
             <div className="space-y-2">
-              {getDailyTasks().map(task => (
+              {todaysTasks.map(task => (
                 <div key={task.id} className={`p-3 border rounded-lg transition-colors flex flex-col ${
                   task.is_done 
                     ? 'border-green-600 bg-green-900/20' 
@@ -880,14 +790,14 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
         )}
         
         {/* To-do list Section */}
-        {getTodaysTasks().length > 0 && (
+        {getTodoListTasks().length > 0 && (
           <div className="mb-6">
             <h3 className="text-md font-medium text-slate-300 mb-3 flex items-center">
               <span className="mr-2">📝</span>
               To-do list
             </h3>
             <div className="space-y-2">
-              {getTodaysTasks().map(task => (
+              {getTodoListTasks().map(task => (
                 <div key={task.id} className={`p-3 border rounded-lg transition-colors flex flex-col ${
                   task.is_done 
                     ? 'border-green-600 bg-green-900/20' 
@@ -924,7 +834,7 @@ export default function Dashboard({ tasks, goals, values, timeBlocks, completion
         )}
         
         {/* Show message if no incomplete tasks */}
-        {tasks.length > 0 && getDailyTasks().length === 0 && getTodaysTasks().length === 0 && (
+        {tasks.length > 0 && todaysTasks.length === 0 && (
           <p className="text-slate-400">All tasks completed! 🎉</p>
         )}
       </div>
