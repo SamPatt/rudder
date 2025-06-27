@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { Task, Goal, Value } from '../types/database';
@@ -60,7 +60,6 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
     const scheduledTasks = tasks.filter(task => task.start_time && task.end_time);
     
     // For each day, prioritize daily instances over recurring tasks
-    const today = new Date().toISOString().split('T')[0];
     const result: Task[] = [];
     
     // Group tasks by their key (title + start_time + end_time)

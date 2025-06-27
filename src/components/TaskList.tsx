@@ -93,56 +93,23 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
       const insertPayload = {
         title: newTaskTitle,
         is_done: false,
-        is_recurring: isRecurring,
-        recur_type: isRecurring ? recurType : null,
+        recur: isRecurring ? recurType : null,
         custom_days: isRecurring && recurType === 'custom' ? customDays : null,
         date: taskDate,
+        goal_id: goalIds.length > 0 ? goalIds[0] : null,
         user_id: user.id,
       };
+      
       console.log('Inserting task with payload:', insertPayload, 'User:', user);
       const { data: task, error: taskError } = await supabase
         .from('tasks')
         .insert(insertPayload)
-        .select()
+        .select('*, goal:goals(*)')
         .single();
 
       if (taskError) throw taskError;
 
-      // Add goal relationships if any goals were selected
-      if (goalIds.length > 0) {
-        const taskGoals = goalIds.map(goalId => ({
-          task_id: task.id,
-          goal_id: goalId,
-          user_id: user.id,
-        }));
-
-        const { error: goalError } = await supabase
-          .from('task_goals')
-          .insert(taskGoals);
-
-        if (goalError) throw goalError;
-      }
-
-      // Fetch the task with its goals
-      const { data: taskWithGoals, error: fetchError } = await supabase
-        .from('tasks')
-        .select(`
-          *,
-          task_goals (
-            *,
-            goal:goals (
-              *,
-              value:values (*)
-            )
-          )
-        `)
-        .eq('id', task.id)
-        .eq('user_id', user.id)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      setTasks([taskWithGoals, ...tasks]);
+      setTasks([task, ...tasks]);
       setNewTaskTitle('');
       setIsRecurring(false);
       setRecurType('daily');
@@ -265,50 +232,26 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
 
   const updateTaskGoals = async (taskId: string, goalIds: string[]) => {
     try {
-      // First, delete existing goal relationships
-      const { error: deleteError } = await supabase
-        .from('task_goals')
-        .delete()
-        .eq('task_id', taskId)
+      // Update the task's goal_id
+      const { error: updateError } = await supabase
+        .from('tasks')
+        .update({ goal_id: goalIds.length > 0 ? goalIds[0] : null })
+        .eq('id', taskId)
         .eq('user_id', user.id);
 
-      if (deleteError) throw deleteError;
+      if (updateError) throw updateError;
 
-      // Then add new goal relationships if any goals were selected
-      if (goalIds.length > 0) {
-        const taskGoals = goalIds.map(goalId => ({
-          task_id: taskId,
-          goal_id: goalId,
-          user_id: user.id,
-        }));
-
-        const { error: insertError } = await supabase
-          .from('task_goals')
-          .insert(taskGoals.map(tg => ({ ...tg, user_id: user.id })));
-
-        if (insertError) throw insertError;
-      }
-
-      // Fetch the updated task with its goals
-      const { data: taskWithGoals, error: fetchError } = await supabase
+      // Fetch the updated task with its goal
+      const { data: taskWithGoal, error: fetchError } = await supabase
         .from('tasks')
-        .select(`
-          *,
-          task_goals (
-            *,
-            goal:goals (
-              *,
-              value:values (*)
-            )
-          )
-        `)
+        .select('*, goal:goals(*)')
         .eq('id', taskId)
         .eq('user_id', user.id)
         .single();
 
       if (fetchError) throw fetchError;
 
-      setTasks(tasks.map(task => task.id === taskId ? taskWithGoals : task));
+      setTasks(tasks.map(task => task.id === taskId ? taskWithGoal : task));
       setEditingTaskId(null);
     } catch (error) {
       console.error('Error updating task goals:', error);
@@ -333,71 +276,45 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
   });
 
   const getTaskGoalNames = (task: Task) => {
-    if (!task.task_goals || task.task_goals.length === 0) return null;
-    return task.task_goals.map(tg => {
-      const goal = tg.goal;
-      if (!goal) return null;
-      const value = goal.value;
-      const valueIcon = value ? getValueIcon(value.name) : '🎯';
-      return `${valueIcon} ${goal.name}`;
-    }).filter(Boolean).join(', ');
+    if (!task.goal) return null;
+    const goal = task.goal;
+    const value = goal.value;
+    const valueIcon = value ? getValueIcon(value.name) : '🎯';
+    return `${valueIcon} ${goal.name}`;
   };
 
   const getCurrentTaskGoalIds = () => {
     if (!editingTaskId) return [];
     const task = tasks.find(t => t.id === editingTaskId);
-    if (!task || !task.task_goals) return [];
-    return task.task_goals.map(tg => tg.goal_id);
+    if (!task || !task.goal_id) return [];
+    return [task.goal_id];
   };
 
   // Helper function to check if a task is scheduled for today
   const isTaskScheduledForToday = (task: Task): boolean => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
+    const today = new Date().toISOString().split('T')[0];
     
-    // For one-time tasks, check if the date is today AND it's a meaningful due date
-    if (!task.is_recurring && task.date) {
-      const taskDate = new Date(task.date);
-      const todayStr = today.toISOString().split('T')[0];
-      const taskDateStr = taskDate.toISOString().split('T')[0];
-      
-      // Only consider it "today" if the date is today AND it's not a default date
-      // We'll assume that if the task was created today with today's date, it's a default date
-      if (todayStr === taskDateStr) {
-        // Check if this is likely a default date by comparing with created_at
-        const createdDate = new Date(task.created_at);
-        const createdDateStr = createdDate.toISOString().split('T')[0];
-        
-        // If created today and date is today, it's likely a default date, not a "today" task
-        if (createdDateStr === todayStr) {
-          return false;
-        }
-        
-        return true;
-      }
-      
-      return false;
+    // One-time tasks with a specific date
+    if (task.recur === 'once' && task.date) {
+      return task.date === today;
     }
     
-    // For one-time tasks without a date, they should not be in "Today"
-    if (!task.is_recurring && !task.date) {
-      return false;
+    // Tasks without recurrence and without a date (to-do items)
+    if (!task.recur && !task.date) {
+      return false; // To-do items are not scheduled for today
     }
     
-    // For recurring tasks, check if today's day of week is in the scheduled days
-    if (task.is_recurring && task.recur_type) {
-      switch (task.recur_type) {
-        case 'daily':
-          return true;
-        case 'weekdays':
-          return dayOfWeek >= 1 && dayOfWeek <= 5;
-        case 'weekly':
-          return task.custom_days ? task.custom_days.includes(dayOfWeek) : false;
-        case 'custom':
-          return task.custom_days ? task.custom_days.includes(dayOfWeek) : false;
-        default:
-          return false;
-      }
+    // Recurring tasks
+    if (task.recur && task.recur !== 'once') {
+      const today = new Date();
+      const dayOfWeek = today.getDay();
+      const days = getDaysForTask(task);
+      return days.includes(dayOfWeek);
+    }
+    
+    // Tasks with a specific date
+    if (task.date) {
+      return task.date === today;
     }
     
     return false;
@@ -405,41 +322,27 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
 
   // Helper function to check if a task is due later than today
   const isTaskUpcoming = (task: Task): boolean => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = new Date().toISOString().split('T')[0];
     
-    // For one-time tasks, check if the date is in the future
-    if (!task.is_recurring && task.date) {
-      const taskDate = new Date(task.date);
-      taskDate.setHours(0, 0, 0, 0);
-      
-      // Only consider it "upcoming" if the date is actually in the future
-      // and it's not a default date
-      if (taskDate > today) {
-        // Check if this is likely a default date by comparing with created_at
-        const createdDate = new Date(task.created_at);
-        const createdDateStr = createdDate.toISOString().split('T')[0];
-        const taskDateStr = taskDate.toISOString().split('T')[0];
-        
-        // If created today and date is today, it's likely a default date, not an "upcoming" task
-        if (createdDateStr === taskDateStr && taskDateStr === today.toISOString().split('T')[0]) {
-          return false;
-        }
-        
-        return true;
-      }
-      
-      return false;
+    // One-time tasks with a specific date
+    if (task.recur === 'once' && task.date) {
+      return task.date > today;
     }
     
-    // For one-time tasks without a date, they should not be in "Upcoming"
-    if (!task.is_recurring && !task.date) {
-      return false;
+    // Tasks without recurrence and without a date (to-do items)
+    if (!task.recur && !task.date) {
+      return false; // To-do items are not upcoming
     }
     
-    // For recurring tasks, check if it's not scheduled for today
-    if (task.is_recurring) {
+    // Recurring tasks
+    if (task.recur && task.recur !== 'once') {
+      // For recurring tasks, we consider them "upcoming" if they're not scheduled for today
       return !isTaskScheduledForToday(task);
+    }
+    
+    // Tasks with a specific date
+    if (task.date) {
+      return task.date > today;
     }
     
     return false;
@@ -475,46 +378,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
 
   // Get to-do tasks (non-recurring tasks without specific due dates)
   const getTodoTasks = () => {
-    return filteredTasks
-      .filter(task => {
-        // To-do tasks are non-recurring tasks that either:
-        // 1. Don't have a date field, OR
-        // 2. Have a date but it's not a specific due date (e.g., created with today's date as default)
-        if (task.is_recurring) return false;
-        
-        // If the task has a date, check if it's actually a meaningful due date
-        if (task.date) {
-          // If the date is today and it's not a recurring task, it might be a default date
-          // We'll consider it a to-do task if it was created today (indicating it's a default date)
-          const taskDate = new Date(task.date);
-          const today = new Date();
-          const taskDateStr = taskDate.toISOString().split('T')[0];
-          const todayStr = today.toISOString().split('T')[0];
-          
-          // If the date is today, it's likely a default date, so treat as to-do
-          if (taskDateStr === todayStr) {
-            return true;
-          }
-          
-          // If the date is in the past, it's also a to-do task
-          if (taskDate < today) {
-            return true;
-          }
-          
-          // If the date is in the future, it's an upcoming task
-          return false;
-        }
-        
-        // No date field, definitely a to-do task
-        return true;
-      })
-      .sort((a, b) => {
-        // Sort incomplete tasks first, then completed tasks
-        if (!a.is_done && b.is_done) return -1;
-        if (a.is_done && !b.is_done) return 1;
-        // If both have same completion status, sort by creation date (newest first)
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      });
+    return tasks.filter(task => isTaskTodo(task) && !task.is_done);
   };
 
   // Helper function to get the actual completion date for a task
@@ -575,6 +439,26 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
     { value: 5, short: 'Fri', long: 'Friday' },
     { value: 6, short: 'Sat', long: 'Saturday' },
   ];
+
+  const isTaskTodo = (task: Task): boolean => {
+    // To-do items are tasks without recurrence and without a specific date
+    return !task.recur && !task.date;
+  };
+
+  const getDaysForTask = (task: Task): number[] => {
+    if (!task.recur) return [];
+    
+    switch (task.recur) {
+      case 'daily':
+        return [0, 1, 2, 3, 4, 5, 6]; // All days
+      case 'weekdays':
+        return [1, 2, 3, 4, 5]; // Monday to Friday
+      case 'custom':
+        return task.custom_days || [];
+      default:
+        return [];
+    }
+  };
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -734,7 +618,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
                       </div>
                       {getTaskGoalNames(task) && (
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {getTaskGoalNames(task)!.split(', ').map((goalTag, idx) => (
+                          {getTaskGoalNames(task)!.split(', ').map((goalTag: string, idx: number) => (
                             <span
                               key={idx}
                               className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
@@ -808,7 +692,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
                       </div>
                       {getTaskGoalNames(task) && (
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {getTaskGoalNames(task)!.split(', ').map((goalTag, idx) => (
+                          {getTaskGoalNames(task)!.split(', ').map((goalTag: string, idx: number) => (
                             <span
                               key={idx}
                               className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
@@ -882,7 +766,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
                       </div>
                       {getTaskGoalNames(task) && (
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {getTaskGoalNames(task)!.split(', ').map((goalTag, idx) => (
+                          {getTaskGoalNames(task)!.split(', ').map((goalTag: string, idx: number) => (
                             <span
                               key={idx}
                               className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"
@@ -969,7 +853,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
                             </div>
                             {getTaskGoalNames(task) && (
                               <div className="mt-2 flex flex-wrap gap-1">
-                                {getTaskGoalNames(task)!.split(', ').map((goalTag, idx) => (
+                                {getTaskGoalNames(task)!.split(', ').map((goalTag: string, idx: number) => (
                                   <span
                                     key={idx}
                                     className="text-xs sm:text-sm px-2 py-1 rounded flex-shrink-0 text-slate-300 bg-slate-600"

@@ -62,8 +62,6 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
 
   // Get tasks for the event cards (past due, current, upcoming)
   const getEventTasks = () => {
-    const today = new Date().toISOString().split('T')[0];
-    
     // Get all tasks that are scheduled for today and have time data
     const todaysTasks = tasks.filter(task => 
       isScheduledForToday(task) && 
@@ -521,9 +519,6 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
 
   // Calculate statistics
   const todaysTasks = getTodaysTasks();
-  const completedToday = todaysTasks.filter(task => task.is_done);
-  const totalTasks = todaysTasks.length;
-  const completionRate = totalTasks > 0 ? Math.round((completedToday.length / totalTasks) * 100) : 0;
 
   // Focus the input when expanding
   useEffect(() => {
@@ -533,11 +528,6 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
   }, [showQuickAdd]);
 
   const { pastDue, current, upcoming } = getEventTasks();
-
-  const isToday = (date: Date) => {
-    const today = new Date();
-    return date.toDateString() === today.toDateString();
-  };
 
   // Format time in 12-hour format
   const formatTime = (time: string) => {
@@ -567,9 +557,11 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
                   <h4 className="text-base sm:text-lg font-medium truncate">{pastDue.title}</h4>
-                  <p className="text-sm text-gray-800">
-                    {formatTime(pastDue.start_time)} - {formatTime(pastDue.end_time)}
-                  </p>
+                  {pastDue.start_time && pastDue.end_time && (
+                    <span className="text-xs text-gray-400">
+                      {formatTime(pastDue.start_time)} - {formatTime(pastDue.end_time)}
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-2 ml-2 flex-shrink-0">
                   <button
@@ -597,9 +589,11 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
                   <h4 className="text-lg sm:text-xl font-medium truncate">{current.title}</h4>
-                  <p className="text-sm text-orange-200">
-                    {formatTime(current.start_time)} - {formatTime(current.end_time)}
-                  </p>
+                  {current.start_time && current.end_time && (
+                    <span className="text-xs text-gray-400">
+                      {formatTime(current.start_time)} - {formatTime(current.end_time)}
+                    </span>
+                  )}
                   {getCurrentTaskStatus(current) && (
                     <p className="text-xs mt-1 text-orange-200">
                       {getCurrentTaskStatus(current)}
@@ -632,9 +626,11 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
                   <h4 className="text-base sm:text-lg font-medium truncate">{upcoming.title}</h4>
-                  <p className="text-sm text-gray-400">
-                    {formatTime(upcoming.start_time)} - {formatTime(upcoming.end_time)}
-                  </p>
+                  {upcoming.start_time && upcoming.end_time && (
+                    <span className="text-xs text-gray-400">
+                      {formatTime(upcoming.start_time)} - {formatTime(upcoming.end_time)}
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-2 ml-2 flex-shrink-0">
                   <button

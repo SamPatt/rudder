@@ -177,6 +177,7 @@ function App() {
                 goals={goals} 
                 values={values}
                 setGoals={setGoals}
+                setValues={setValues}
                 user={user}
               />
             } />
