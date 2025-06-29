@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { Task, Goal, Value } from './types/database';
@@ -12,13 +12,30 @@ import Login from './components/Login';
 
 const ALLOWED_EMAIL = import.meta.env.VITE_ALLOWED_EMAIL;
 
-function App() {
+// Inner component that uses router hooks
+function AppContent() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [values, setValues] = useState<Value[]>([]);
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
+  const [showSwipeFeedback, setShowSwipeFeedback] = useState(false);
+
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const navItems = [
+    { path: '/', label: 'Dashboard', icon: '📊' },
+    { path: '/tasks', label: 'Tasks', icon: '📝' },
+    { path: '/schedule', label: 'Schedule', icon: '📅' },
+    { path: '/goals', label: 'Goals', icon: '🎯' }
+  ];
+
+  // Minimum swipe distance (in px)
+  const minSwipeDistance = 50;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -32,6 +49,61 @@ function App() {
       listener?.subscription.unsubscribe();
     };
   }, []);
+
+  // Swipe navigation effect
+  useEffect(() => {
+    const handleTouchStart = (e: TouchEvent) => {
+      setTouchEnd(null);
+      setTouchStart(e.touches[0].clientX);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      setTouchEnd(e.touches[0].clientX);
+    };
+
+    const handleTouchEnd = () => {
+      if (!touchStart || !touchEnd) return;
+      
+      const distance = touchStart - touchEnd;
+      const isLeftSwipe = distance > minSwipeDistance;
+      const isRightSwipe = distance < -minSwipeDistance;
+
+      if (isLeftSwipe || isRightSwipe) {
+        const currentIndex = navItems.findIndex(item => item.path === location.pathname);
+        let nextIndex: number;
+
+        if (isLeftSwipe) {
+          // Swipe left - go to next tab
+          nextIndex = currentIndex === navItems.length - 1 ? 0 : currentIndex + 1;
+        } else {
+          // Swipe right - go to previous tab
+          nextIndex = currentIndex === 0 ? navItems.length - 1 : currentIndex - 1;
+        }
+
+        // Show feedback
+        setShowSwipeFeedback(true);
+        setTimeout(() => setShowSwipeFeedback(false), 300);
+
+        navigate(navItems[nextIndex].path);
+      }
+    };
+
+    // Add listeners to the entire app wrapper
+    const appWrapper = document.getElementById('app-wrapper');
+    if (appWrapper) {
+      appWrapper.addEventListener('touchstart', handleTouchStart, { passive: true });
+      appWrapper.addEventListener('touchmove', handleTouchMove, { passive: true });
+      appWrapper.addEventListener('touchend', handleTouchEnd, { passive: true });
+    }
+
+    return () => {
+      if (appWrapper) {
+        appWrapper.removeEventListener('touchstart', handleTouchStart);
+        appWrapper.removeEventListener('touchmove', handleTouchMove);
+        appWrapper.removeEventListener('touchend', handleTouchEnd);
+      }
+    };
+  }, [touchStart, touchEnd, location.pathname, navigate]);
 
   useEffect(() => {
     if (user) {
@@ -153,51 +225,65 @@ function App() {
   }
 
   return (
-    <Router>
-      <div className="min-h-screen bg-slate-900 text-slate-200">
-        <Navigation />
+    <div id="app-wrapper" className="min-h-screen bg-slate-900 text-slate-200">
+      <Navigation />
 
-        <main className="w-full sm:max-w-7xl sm:mx-auto py-4 px-2 sm:py-6 sm:px-6 lg:px-8">
-          <Routes>
-            <Route path="/" element={
-              <Dashboard 
-                tasks={tasks} 
-                goals={goals} 
-                values={values}
-                setTasks={setTasks}
-                user={user}
-              />
-            } />
-            <Route path="/tasks" element={
-              <TaskList 
-                tasks={tasks} 
-                goals={goals} 
-                values={values}
-                setTasks={setTasks}
-                user={user}
-              />
-            } />
-            <Route path="/schedule" element={
-              <Schedule 
-                tasks={tasks} 
-                goals={goals} 
-                values={values}
-                setTasks={setTasks}
-                user={user}
-              />
-            } />
-            <Route path="/goals" element={
-              <GoalManager 
-                goals={goals} 
-                values={values}
-                setGoals={setGoals}
-                setValues={setValues}
-                user={user}
-              />
-            } />
-          </Routes>
-        </main>
-      </div>
+      <main className="w-full sm:max-w-7xl sm:mx-auto py-4 px-2 sm:py-6 sm:px-6 lg:px-8">
+        {/* Swipe Feedback Indicator */}
+        {showSwipeFeedback && (
+          <div className="md:hidden fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-forest-500 text-white px-3 py-1 rounded-md text-sm animate-pulse">
+            Swiped!
+          </div>
+        )}
+
+        <Routes>
+          <Route path="/" element={
+            <Dashboard 
+              tasks={tasks} 
+              goals={goals} 
+              values={values}
+              setTasks={setTasks}
+              user={user}
+            />
+          } />
+          <Route path="/tasks" element={
+            <TaskList 
+              tasks={tasks} 
+              goals={goals} 
+              values={values}
+              setTasks={setTasks}
+              user={user}
+            />
+          } />
+          <Route path="/schedule" element={
+            <Schedule 
+              tasks={tasks} 
+              goals={goals} 
+              values={values}
+              setTasks={setTasks}
+              user={user}
+            />
+          } />
+          <Route path="/goals" element={
+            <GoalManager 
+              goals={goals} 
+              values={values}
+              setGoals={setGoals}
+              setValues={setValues}
+              user={user}
+            />
+          } />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
+// Main App component that provides the Router context
+function App() {
+  return (
+    <Router>
+      <AppContent />
     </Router>
   );
 }

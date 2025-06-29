@@ -1,13 +1,9 @@
-import { useState, useEffect } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 
 const Navigation = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [touchStart, setTouchStart] = useState<number | null>(null);
-  const [touchEnd, setTouchEnd] = useState<number | null>(null);
-  const [showSwipeFeedback, setShowSwipeFeedback] = useState(false);
   const location = useLocation();
-  const navigate = useNavigate();
 
   const navItems = [
     { path: '/', label: 'Dashboard', icon: '📊' },
@@ -17,64 +13,6 @@ const Navigation = () => {
   ];
 
   const isActive = (path: string) => location.pathname === path;
-
-  // Minimum swipe distance (in px)
-  const minSwipeDistance = 50;
-
-  // Add touch event listeners to the main content area
-  useEffect(() => {
-    const handleTouchStart = (e: TouchEvent) => {
-      setTouchEnd(null);
-      setTouchStart(e.touches[0].clientX);
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      setTouchEnd(e.touches[0].clientX);
-    };
-
-    const handleTouchEnd = () => {
-      if (!touchStart || !touchEnd) return;
-      
-      const distance = touchStart - touchEnd;
-      const isLeftSwipe = distance > minSwipeDistance;
-      const isRightSwipe = distance < -minSwipeDistance;
-
-      if (isLeftSwipe || isRightSwipe) {
-        const currentIndex = navItems.findIndex(item => item.path === location.pathname);
-        let nextIndex: number;
-
-        if (isLeftSwipe) {
-          // Swipe left - go to next tab
-          nextIndex = currentIndex === navItems.length - 1 ? 0 : currentIndex + 1;
-        } else {
-          // Swipe right - go to previous tab
-          nextIndex = currentIndex === 0 ? navItems.length - 1 : currentIndex - 1;
-        }
-
-        // Show feedback
-        setShowSwipeFeedback(true);
-        setTimeout(() => setShowSwipeFeedback(false), 300);
-
-        navigate(navItems[nextIndex].path);
-      }
-    };
-
-    // Add listeners to the main content area
-    const mainContent = document.querySelector('main');
-    if (mainContent) {
-      mainContent.addEventListener('touchstart', handleTouchStart, { passive: true });
-      mainContent.addEventListener('touchmove', handleTouchMove, { passive: true });
-      mainContent.addEventListener('touchend', handleTouchEnd, { passive: true });
-    }
-
-    return () => {
-      if (mainContent) {
-        mainContent.removeEventListener('touchstart', handleTouchStart);
-        mainContent.removeEventListener('touchmove', handleTouchMove);
-        mainContent.removeEventListener('touchend', handleTouchEnd);
-      }
-    };
-  }, [touchStart, touchEnd, location.pathname, navigate]);
 
   return (
     <nav className="bg-slate-800 shadow-lg border-b border-slate-700 w-full">
@@ -134,13 +72,6 @@ const Navigation = () => {
             </button>
           </div>
         </div>
-
-        {/* Swipe Feedback Indicator */}
-        {showSwipeFeedback && (
-          <div className="md:hidden absolute top-16 left-1/2 transform -translate-x-1/2 z-50 bg-forest-500 text-white px-3 py-1 rounded-md text-sm animate-pulse">
-            Swiped!
-          </div>
-        )}
 
         {/* Mobile Navigation Menu */}
         {isMenuOpen && (
