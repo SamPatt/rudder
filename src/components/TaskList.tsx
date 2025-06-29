@@ -20,6 +20,8 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurType, setRecurType] = useState<'daily' | 'weekdays' | 'weekly' | 'custom'>('daily');
   const [customDays, setCustomDays] = useState<number[]>([]);
+  const [editModalTask, setEditModalTask] = useState<Task | null>(null);
+  const [editTitle, setEditTitle] = useState('');
 
   const handleAddTask = () => {
     if (!newTaskTitle.trim()) return;
@@ -513,6 +515,16 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
                             }`}>
                               {task.title}
                             </span>
+                            <button
+                              className="ml-2 text-slate-400 hover:text-blue-400 text-lg px-2 py-1 rounded"
+                              title="Edit task"
+                              onClick={() => {
+                                setEditModalTask(task);
+                                setEditTitle(task.title);
+                              }}
+                            >
+                              ✎
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -528,6 +540,16 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
                         <div key={task.id} className="p-3 border border-slate-600 rounded-lg bg-slate-700 flex flex-col">
                           <div className="flex items-center gap-3 min-w-0">
                             <span className="flex-1 min-w-0 break-words text-slate-200">{task.title}</span>
+                            <button
+                              className="ml-2 text-slate-400 hover:text-blue-400 text-lg px-2 py-1 rounded"
+                              title="Edit task"
+                              onClick={() => {
+                                setEditModalTask(task);
+                                setEditTitle(task.title);
+                              }}
+                            >
+                              ✎
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -569,9 +591,76 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
                         }`}>
                           {task.title}
                         </span>
+                        <button
+                          className="ml-2 text-slate-400 hover:text-blue-400 text-lg px-2 py-1 rounded"
+                          title="Edit task"
+                          onClick={() => {
+                            setEditModalTask(task);
+                            setEditTitle(task.title);
+                          }}
+                        >
+                          ✎
+                        </button>
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Edit Task Modal */}
+            {editModalTask && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-slate-800 p-6 rounded-lg shadow-lg w-full max-w-md mx-2">
+                  <h3 className="text-lg font-semibold text-slate-200 mb-4">Edit Task</h3>
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={e => setEditTitle(e.target.value)}
+                    className="w-full px-3 py-2 mb-4 border border-slate-600 rounded-md bg-slate-700 text-slate-200 focus:outline-none focus:ring-2 focus:ring-forest-500"
+                  />
+                  <div className="flex gap-3 justify-end">
+                    <button
+                      className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded"
+                      onClick={() => setEditModalTask(null)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
+                      onClick={async () => {
+                        if (!editModalTask) return;
+                        const { error } = await supabase
+                          .from('tasks')
+                          .update({ title: editTitle })
+                          .eq('id', editModalTask.id)
+                          .eq('user_id', user.id);
+                        if (!error) {
+                          setTasks(tasks.map(t => t.id === editModalTask.id ? { ...t, title: editTitle } : t));
+                          setEditModalTask(null);
+                        }
+                      }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded"
+                      onClick={async () => {
+                        if (!editModalTask) return;
+                        const { error } = await supabase
+                          .from('tasks')
+                          .delete()
+                          .eq('id', editModalTask.id)
+                          .eq('user_id', user.id);
+                        if (!error) {
+                          setTasks(tasks.filter(t => t.id !== editModalTask.id));
+                          setEditModalTask(null);
+                        }
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -607,6 +696,16 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
                                 className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600 flex-shrink-0"
                               />
                               <span className={`flex-1 min-w-0 break-words ${task.is_done ? 'line-through text-slate-500' : 'text-slate-200'}`}>{task.title}</span>
+                              <button
+                                className="ml-2 text-slate-400 hover:text-blue-400 text-lg px-2 py-1 rounded"
+                                title="Edit task"
+                                onClick={() => {
+                                  setEditModalTask(task);
+                                  setEditTitle(task.title);
+                                }}
+                              >
+                                ✎
+                              </button>
                             </div>
                           </div>
                         ))}
