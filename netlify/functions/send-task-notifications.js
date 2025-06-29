@@ -8,6 +8,7 @@ webpush.setVapidDetails(
 );
 
 exports.handler = async function(event, context) {
+  console.log('send-task-notifications function triggered');
   // 1. Fetch your push subscription(s) from Supabase
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
@@ -20,6 +21,7 @@ exports.handler = async function(event, context) {
     }
   });
   const subscriptions = await subRes.json();
+  console.log(`Fetched ${subscriptions.length} push subscriptions`);
 
   // 2. Query Supabase for tasks starting now
   const now = new Date();
@@ -33,6 +35,7 @@ exports.handler = async function(event, context) {
     }
   });
   const tasks = await taskRes.json();
+  console.log(`Fetched ${tasks.length} tasks for ${nowDate} at ${nowTime}`);
 
   // 3. Send a notification for each task to each subscription
   let sent = 0;
@@ -50,6 +53,7 @@ exports.handler = async function(event, context) {
       }
     }
   }
+  console.log(`Sent ${sent} notifications for ${tasks.length} tasks to ${subscriptions.length} subscriptions`);
 
   return {
     statusCode: 200,
