@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { Task, Goal, Value } from '../types/database';
@@ -58,23 +58,34 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
   const [activeMenuTaskId, setActiveMenuTaskId] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
+  const scheduleContainerRef = useRef<HTMLDivElement>(null);
+  const [currentHour, setCurrentHour] = useState(new Date().getHours());
+
+  // Update current hour every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentHour(new Date().getHours());
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Scroll to current hour when viewing today
+  useEffect(() => {
+    if (isToday(currentDate) && scheduleContainerRef.current) {
+      const currentHourElement = scheduleContainerRef.current.querySelector(`[data-hour="${currentHour}"]`);
+      if (currentHourElement) {
+        currentHourElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center'
+        });
+      }
+    }
+  }, [currentDate, currentHour]);
 
   // Get scheduled tasks (tasks with start_time and end_time)
   const getScheduledTasks = () => {
     const scheduledTasks = tasks.filter(task => task.start_time && task.end_time);
-    
-    // Debug: Log all tasks with start/end times
-    console.log('=== DEBUG: getScheduledTasks ===');
-    console.log('All tasks with start/end times:', scheduledTasks.map(t => ({
-      id: t.id,
-      title: t.title,
-      date: t.date,
-      recur: t.recur,
-      start_time: t.start_time,
-      end_time: t.end_time,
-      template_id: t.template_id
-    })));
-    console.log('Current date being viewed:', currentDate.toISOString().split('T')[0]);
     
     // For each day, prioritize daily instances over recurring tasks
     const result: Task[] = [];
@@ -90,18 +101,11 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
           taskGroups[key] = [];
         }
         taskGroups[key].push(task);
-        console.log(`Added recurring task to group "${key}": ${task.title} (recur: ${task.recur}, template_id: ${task.template_id}, date: ${task.date})`);
-      } else {
-        console.log(`Skipped task for grouping: ${task.title} (recur: ${task.recur}, template_id: ${task.template_id})`);
       }
     });
     
-    console.log('Recurring task groups:', taskGroups);
-    
     // Handle recurring tasks (grouped)
     Object.values(taskGroups).forEach(group => {
-      console.log(`Processing group with ${group.length} tasks: ${group[0]?.title}`);
-      
       // Find daily instance for the current date (not just today)
       const dailyInstance = group.find(task => 
         task.date === currentDate.toISOString().split('T')[0] && 
@@ -117,42 +121,24 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
         isTaskScheduledForDate(task, currentDate)
       );
       
-      console.log(`Group ${group[0]?.title}: dailyInstance=${!!dailyInstance}, recurringTask=${!!recurringTask}`);
-      console.log(`Group tasks:`, group.map(t => ({ title: t.title, date: t.date, recur: t.recur, isScheduled: isTaskScheduledForDate(t, currentDate) })));
-      
       // If we have a daily instance for the current date, use it
       if (dailyInstance) {
         result.push(dailyInstance);
-        console.log(`Added daily instance: ${dailyInstance.title}`);
       } 
       // Otherwise, if we have a recurring task scheduled for this date, use it
       else if (recurringTask) {
         result.push(recurringTask);
-        console.log(`Added recurring task: ${recurringTask.title}`);
-      } else {
-        console.log(`No task selected for group: ${group[0]?.title}`);
       }
     });
     
     // Handle one-time tasks separately (don't group them)
     const oneTimeTasks = scheduledTasks.filter(task => task.recur === 'once');
-    console.log('One-time tasks found:', oneTimeTasks.map(t => ({
-      title: t.title,
-      date: t.date,
-      isScheduledForCurrentDate: isTaskScheduledForDate(t, currentDate)
-    })));
     
     oneTimeTasks.forEach(task => {
       if (isTaskScheduledForDate(task, currentDate)) {
         result.push(task);
-        console.log(`Added one-time task: ${task.title} for date ${task.date}`);
-      } else {
-        console.log(`Skipped one-time task: ${task.title} (scheduled for ${task.date}, viewing ${currentDate.toISOString().split('T')[0]})`);
       }
     });
-    
-    console.log('Final result:', result.map(t => ({ title: t.title, date: t.date, recur: t.recur })));
-    console.log('=== END DEBUG ===');
     
     return result;
   };
@@ -364,11 +350,6 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
     const currentDateStr = date.toISOString().split('T')[0];
     const result = taskDateStr === currentDateStr;
     
-    // Debug logging for date comparison issues
-    if (task.recur && task.recur !== 'once') {
-      console.log(`Date comparison for recurring task "${task.title}": taskDate=${taskDateStr}, currentDate=${currentDateStr}, result=${result}`);
-    }
-    
     return result;
   };
 
@@ -399,19 +380,10 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
       const targetDate = currentDate.toISOString().split('T')[0];
       const task = tasks.find(t => t.id === taskId);
       
-      console.log('=== DEBUG: updateTaskStatus ===');
-      console.log('Task ID:', taskId);
-      console.log('Task:', task);
-      console.log('currentDate object:', currentDate);
-      console.log('Target date (currentDate):', targetDate);
-      console.log('Actual today:', new Date().toISOString().split('T')[0]);
-      
       if (!task) return;
 
       // For recurring tasks, create a daily instance for the current date being viewed
       if (task.recur && task.recur !== 'once') {
-        console.log('Processing recurring task');
-        
         // Check if a daily instance already exists for the target date
         const existingDailyTask = tasks.find(t => 
           t.title === task.title && 
@@ -421,10 +393,7 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
           !t.recur // This must be a daily instance, not a recurring task
         );
 
-        console.log('Existing daily task:', existingDailyTask);
-
         if (existingDailyTask) {
-          console.log('Updating existing daily instance');
           // Update the existing daily instance
           const { error } = await supabase
             .from('tasks')
@@ -447,7 +416,6 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
             } : t
           ));
         } else {
-          console.log('Creating new daily instance');
           // Create a new daily instance for the target date
           const dailyTaskData = {
             title: task.title,
@@ -463,8 +431,6 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
             // Don't copy recur fields - this is a one-time instance
           };
 
-          console.log('Daily task data:', dailyTaskData);
-
           const { data: newTask, error } = await supabase
             .from('tasks')
             .insert([dailyTaskData])
@@ -473,11 +439,9 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
 
           if (error) throw error;
 
-          console.log('New daily task created:', newTask);
           setTasks([newTask, ...tasks]);
         }
       } else {
-        console.log('Processing one-time task');
         // For one-time tasks, update the original task
         const { error } = await supabase
           .from('tasks')
@@ -500,7 +464,6 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
           } : t
         ));
       }
-      console.log('=== END DEBUG ===');
     } catch (error) {
       console.error('Error updating task status:', error);
     }
@@ -619,7 +582,6 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
 
   const navigateDate = (direction: 'prev' | 'next') => {
     const newDate = new Date(currentDate);
-    console.log(`navigateDate: direction=${direction}, currentDate=${currentDate.toISOString()}`);
     
     if (direction === 'prev') {
       newDate.setDate(newDate.getDate() - 1);
@@ -630,7 +592,6 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
     // Ensure the date is set to local time (midnight)
     newDate.setHours(0, 0, 0, 0);
     
-    console.log(`navigateDate: newDate=${newDate.toISOString()}`);
     setCurrentDate(newDate);
   };
 
@@ -641,7 +602,6 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
       month: 'long', 
       day: 'numeric' 
     });
-    console.log(`formatDate: input=${date.toISOString()}, output="${formatted}"`);
     return formatted;
   };
 
@@ -649,6 +609,20 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
     const today = new Date();
     return date.toDateString() === today.toDateString();
   };
+
+  // Compute visible hours (after 6:00 or with tasks)
+  const visibleHours = Array.from({ length: 24 }, (_, h) => h).filter(h => {
+    if (h >= 6) return true;
+    // Check if this hour has any tasks
+    return getScheduledTasks().some(task => {
+      const [startHour] = task.start_time!.split(':').map(Number);
+      const [endHour] = task.end_time!.split(':').map(Number);
+      return (startHour <= h && endHour > h) || (startHour === h) || (endHour > h && startHour < h);
+    });
+  });
+
+  // Map hour to visible index for positioning
+  const hourToIndex = Object.fromEntries(visibleHours.map((h, i) => [h, i]));
 
   return (
     <div className="p-2 sm:p-6 sm:max-w-6xl sm:mx-auto w-full">
@@ -868,115 +842,98 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
             </button>
           </div>
         </div>
-        {/* Schedule grid: 24 rows (one per hour), hour labels fixed, blocks span rows */}
-        <div className="grid grid-cols-[4rem_1fr]" style={{ gridTemplateRows: `repeat(${24}, 60px)`, position: 'relative' }}>
+        {/* Schedule grid: only visible hours */}
+        <div ref={scheduleContainerRef} className="grid grid-cols-[4rem_1fr]" style={{ gridTemplateRows: `repeat(${visibleHours.length}, 60px)`, position: 'relative' }}>
           {/* Hour labels */}
-          {Array.from({ length: 24 }, (_, h) => (
+          {visibleHours.map((h, i) => (
             <div
               key={`label-${h}`}
-              className="col-start-1 row-start-[auto] flex items-center justify-end pr-2 select-none"
-              style={{ gridRow: h + 1, zIndex: 2 }}
+              data-hour={h}
+              className={`col-start-1 row-start-[auto] flex items-center justify-end pr-2 select-none ${
+                isToday(currentDate) && h === currentHour ? 'bg-orange-500 bg-opacity-20 rounded-l' : ''
+              }`}
+              style={{ gridRow: i + 1, zIndex: 2 }}
             >
-              <span className="text-xs sm:text-sm text-gray-400 font-mono">{`${h.toString().padStart(2, '0')}:00`}</span>
+              <span className={`text-xs sm:text-sm font-mono ${
+                isToday(currentDate) && h === currentHour ? 'text-orange-400 font-bold' : 'text-gray-400'
+              }`}>{`${h.toString().padStart(2, '0')}:00`}</span>
             </div>
           ))}
           {/* Full-width hour lines */}
-          {Array.from({ length: 24 }, (_, h) => (
+          {visibleHours.map((h, i) => (
             <div
               key={`line-${h}`}
-              className="col-span-2 absolute left-0 right-0 border-b border-slate-700 pointer-events-none"
-              style={{ top: `${h * 60}px`, height: 0, zIndex: 1 }}
+              data-hour={h}
+              className={`col-span-2 absolute left-0 right-0 border-b pointer-events-none ${
+                isToday(currentDate) && h === currentHour ? 'border-orange-400 border-2' : 'border-slate-700'
+              }`}
+              style={{ top: `${i * 60}px`, height: 0, zIndex: 1 }}
             />
           ))}
+          {/* Current hour indicator */}
+          {isToday(currentDate) && hourToIndex[currentHour] !== undefined && (
+            <div
+              className="col-span-2 absolute left-0 right-0 bg-orange-500 bg-opacity-10 pointer-events-none z-10"
+              style={{ 
+                top: `${hourToIndex[currentHour] * 60}px`,
+                height: '60px'
+              }}
+            />
+          )}
           {/* Time blocks with improved overlap grouping and column assignment */}
           {(() => {
             // Get all visible blocks
             const allScheduledTasks = getScheduledTasks();
-            console.log('=== DEBUG: Task Rendering ===');
-            console.log('All scheduled tasks:', allScheduledTasks.map(t => ({
-              id: t.id,
-              title: t.title,
-              date: t.date,
-              recur: t.recur,
-              is_done: t.is_done,
-              completion_status: t.completion_status,
-              completed_at: t.completed_at
-            })));
-            
-            const visibleBlocks = allScheduledTasks
-              .filter(task => {
-                const isScheduled = isTaskScheduledForDate(task, currentDate);
-                console.log(`Task ${task.title}: isScheduledForDate = ${isScheduled}`);
-                return isScheduled;
-              })
-              .filter(task => {
-                const [startHour] = task.start_time!.split(':').map(Number);
-                const currentHour = new Date().getHours();
-                const isEarlyMorning = startHour >= 0 && startHour < 6;
-                const isCurrentTimeInEarlyMorning = currentHour >= 0 && currentHour < 6;
-                const shouldShow = !(isEarlyMorning && !isCurrentTimeInEarlyMorning);
-                console.log(`Task ${task.title}: early morning filter = ${shouldShow} (startHour: ${startHour}, currentHour: ${currentHour})`);
-                return shouldShow;
-              });
-              
-            console.log('Visible blocks after filtering:', visibleBlocks.map(t => ({
-              id: t.id,
-              title: t.title,
-              is_done: t.is_done,
-              completion_status: t.completion_status
-            })));
-            console.log('=== END DEBUG ===');
-            
+            const visibleBlocks = allScheduledTasks.filter(task => isTaskScheduledForDate(task, currentDate));
             // Group and assign columns
             const blocksWithCols = groupAndAssignColumns(visibleBlocks);
             return Object.values(blocksWithCols).map((task) => {
               const isCurrentTime = isTaskCurrent(task, currentDate);
               const [startHour, startMinute] = task.start_time!.split(':').map(Number);
               const [endHour, endMinute] = task.end_time!.split(':').map(Number);
-              // Only render if block is in hourRange
-              if (!Array.from({ length: 24 }, (_, h) => h).some(h => h === startHour || (startHour < h && endHour > h))) return null;
-              const top = startHour * 60 + startMinute;
-              const height = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
-              // Calculate width and left offset for columns
+              if (hourToIndex[startHour] === undefined) return null;
+              const top = hourToIndex[startHour] * 60 + startMinute;
+              const endIdx = hourToIndex[endHour] !== undefined ? hourToIndex[endHour] : visibleHours.length;
+              const height = (endIdx * 60 + endMinute) - (hourToIndex[startHour] * 60 + startMinute);
               const colCount = task._colCount || 1;
               const width = colCount === 1 ? '100%' : `calc((100% - 0.5rem * ${colCount - 1}) / ${colCount})`;
               const left = colCount === 1 ? '0' : `calc((${width} + 0.5rem) * ${task._col})`;
               const isActive = activeTaskId === task.id;
-              
-              // Debug styling logic
-              console.log(`Task "${task.title}" styling:`, {
-                completion_status: task.completion_status,
-                is_done: task.is_done,
-                isCurrentTime,
-                isPastDue: isPastDue(task, currentDate),
-                willShowAsCompleted: task.completion_status === 'completed',
-                willShowAsPastDue: isPastDue(task, currentDate)
-              });
-              
+              const blockColor =
+                task.completion_status === 'completed'
+                  ? 'bg-green-900 border-green-600'
+                  : isCurrentTime
+                  ? 'border-orange-400 animate-gradient-slow'
+                  : task.completion_status === 'failed'
+                  ? 'bg-red-900 border-red-600'
+                  : task.completion_status === 'skipped'
+                  ? 'bg-red-900 border-red-600'
+                  : isPastDue(task, currentDate)
+                  ? 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-black opacity-80'
+                  : 'bg-slate-700 border-slate-600';
+              // Shrink font for short blocks
+              const fontSize = height < 32 ? 'text-[10px]' : 'text-xs sm:text-sm';
+              // Remove padding for very short blocks
+              const blockPadding = height < 20 ? 'p-0' : height < 32 ? 'py-0.5 px-1' : 'p-1 sm:p-2';
+              // Always use a contrasting color for text
+              const textColor =
+                isPastDue(task, currentDate) ? 'text-gray-800' :
+                isCurrentTime ? 'text-orange-100' :
+                task.completion_status === 'completed' ? 'text-green-200' :
+                'text-gray-200';
               return (
                 <div
                   key={task.id}
-                  className={`col-start-2 z-30 p-2 sm:p-3 rounded border transition-colors flex flex-col justify-between overflow-visible absolute cursor-pointer
-                    ${
-                      task.completion_status === 'completed'
-                        ? 'bg-green-900 border-green-600'
-                        : isCurrentTime
-                        ? 'border-orange-400 animate-gradient-slow'
-                        : task.completion_status === 'failed'
-                        ? 'bg-red-900 border-red-600'
-                        : task.completion_status === 'skipped'
-                        ? 'bg-red-900 border-red-600'
-                        : isPastDue(task, currentDate)
-                        ? 'animate-yellow-gradient bg-yellow-300 border-yellow-500 text-black opacity-80'
-                        : 'bg-slate-700 border-slate-600'
-                    }
-                  `}
+                  className={`col-start-2 z-30 ${blockPadding} rounded border transition-colors flex flex-col justify-center items-center overflow-visible absolute cursor-pointer ${blockColor}`}
                   style={{
                     top: `${top}px`,
-                    height: `${height}px`,
+                    height: `${Math.max(height, 16)}px`,
                     left,
                     width,
-                    right: 'auto'
+                    right: 'auto',
+                    minHeight: 0,
+                    maxHeight: '100%',
+                    overflow: 'visible',
                   }}
                   onClick={e => {
                     e.stopPropagation();
@@ -986,7 +943,6 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
                       setActiveMenuTaskId(null);
                     } else {
                       setActiveTaskId(task.id);
-                      // Calculate position for the floating menu
                       const rect = e.currentTarget.getBoundingClientRect();
                       setMenuPosition({
                         x: rect.left,
@@ -996,17 +952,14 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
                       setActiveMenuTaskId(task.id);
                     }
                   }}
+                  title={`${task.title} (${formatTime(task.start_time!)} - ${formatTime(task.end_time!)})`}
                 >
-                  {/* Show details/buttons only if active or on desktop */}
-                  <div className="flex-1 min-w-0 flex flex-col justify-center">
-                    <h4 className={`text-xs sm:text-sm font-medium truncate
-                      ${isCurrentTime ? 'text-orange-100' :
-                        task.completion_status === 'completed' ? 'text-green-200' :
-                        isPastDue(task, currentDate) ? 'text-gray-800' : 'text-gray-400'
-                      }`}>
-                      {task.title} <span className={`text-xs ${isPastDue(task, currentDate) ? 'text-gray-800' : 'text-gray-400'}`}>({formatTime(task.start_time!)} - {formatTime(task.end_time!)})</span>
+                  <div className="flex-1 min-w-0 flex flex-col justify-center items-center w-full h-full" style={{overflow: 'visible'}}>
+                    <h4 className={`font-medium truncate w-full text-left pl-2 ${fontSize} ${textColor}`}
+                      style={{lineHeight: 1.1, overflow: 'visible'}}>
+                      {task.title} <span className={`text-[9px] ${isPastDue(task, currentDate) ? 'text-gray-800' : 'text-gray-400'}`}>({formatTime(task.start_time!)} - {formatTime(task.end_time!)})</span>
                     </h4>
-                    {isPastDue(task, currentDate) && (
+                    {isPastDue(task, currentDate) && height >= 32 && (
                       <p className="text-xs mt-1 text-gray-800">Past due</p>
                     )}
                   </div>
@@ -1014,9 +967,8 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
               );
             });
           })()}
-          
           {/* Clickable overlay for adding a block to a specific hour */}
-          {Array.from({ length: 24 }, (_, h) => {
+          {visibleHours.map((h, i) => {
             // Check if there are any time blocks in this hour
             const hasTimeBlocksInHour = getScheduledTasks()
               .some(task => {
@@ -1026,13 +978,13 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
                        (startHour === h) || 
                        (endHour > h && startHour < h);
               });
-
             return (
               <div
                 key={`click-${h}`}
+                data-hour={h}
                 className={`col-start-2 absolute ${hasTimeBlocksInHour ? 'z-20' : 'z-40'}`}
                 style={{ 
-                  top: `${h * 60}px`,
+                  top: `${i * 60}px`,
                   height: '60px',
                   left: '0',
                   right: '0',
