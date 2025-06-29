@@ -10,6 +10,7 @@ import GoalManager from './components/GoalManager';
 import Navigation from './components/Navigation';
 import Login from './components/Login';
 import PushRegisterButton from './components/PushRegisterButton';
+import PushDebug from './components/PushDebug';
 
 const ALLOWED_EMAIL = import.meta.env.VITE_ALLOWED_EMAIL;
 
@@ -278,6 +279,11 @@ function AppContent() {
       </main>
 
       <PushRegisterButton user={user} />
+      
+      {/* Temporary debug component - remove after troubleshooting */}
+      <div className="fixed bottom-20 left-4 right-4 z-40">
+        <PushDebug />
+      </div>
     </div>
   );
 }
