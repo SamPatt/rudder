@@ -15,17 +15,44 @@ export interface Goal {
   value?: Value;
 }
 
+export interface TaskTemplate {
+  id: string;
+  title: string;
+  description?: string | null;
+  
+  // Recurrence settings
+  recur_type: 'daily' | 'weekdays' | 'custom';
+  custom_days?: number[] | null;
+  
+  // Time settings (optional)
+  start_time?: string | null;
+  end_time?: string | null;
+  
+  // Relationships
+  goal_id?: string | null;
+  
+  // Metadata
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  user_id: string;
+  
+  // Relationships (for queries)
+  goal?: Goal;
+}
+
 export interface Task {
   id: string;
   title: string;
   description?: string | null;
   
-  // Scheduling fields
+  // Template relationship
+  template_id?: string | null;
+  
+  // Scheduling fields (for one-time tasks)
   start_time?: string | null;
   end_time?: string | null;
-  recur?: 'once' | 'daily' | 'weekdays' | 'custom' | null;
-  custom_days?: number[] | null;
-  event_date?: string | null;
+  recur?: 'once' | null; // Only 'once' remains, other recurring tasks use templates
   
   // Completion tracking
   is_done: boolean;
@@ -42,6 +69,7 @@ export interface Task {
   
   // Relationships (for queries)
   goal?: Goal;
+  template?: TaskTemplate;
 }
 
 export type Json =

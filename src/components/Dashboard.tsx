@@ -21,50 +21,10 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
   const [customDays, setCustomDays] = useState<number[]>([]);
   const taskTitleInputRef = useRef<HTMLInputElement>(null);
 
-  const today = new Date().toISOString().split('T')[0];
-
-  // Helper function to check if a task is scheduled for today
-  const isScheduledForToday = (task: Task): boolean => {
-    const today = new Date().toISOString().split('T')[0];
-    
-    // For daily instances (non-recurring tasks with today's date), always show them
-    if (!task.recur && task.date === today) {
-      return true;
-    }
-    
-    // For one-time events, check event_date
-    if (task.recur === 'once') {
-      return task.event_date === today;
-    }
-    
-    // For recurring tasks, check if scheduled for today
-    if (task.recur) {
-      const dayOfWeek = new Date().getDay();
-      const days = getTaskDays(task);
-      return days.includes(dayOfWeek);
-    }
-    
-    // For regular tasks, check date
-    return task.date === today;
-  };
-
-  // Helper function to get the days a task is scheduled for
-  const getTaskDays = (task: Task) => {
-    if (!task.recur) return [];
-    
-    switch (task.recur) {
-      case 'daily': return [0, 1, 2, 3, 4, 5, 6];
-      case 'weekdays': return [1, 2, 3, 4, 5];
-      case 'custom': return task.custom_days || [];
-      default: return [];
-    }
-  };
-
   // Get tasks for the event cards (past due, current, upcoming)
   const getEventTasks = () => {
     // Get all tasks that are scheduled for today and have time data
-    const todaysTasks = tasks.filter(task => 
-      isScheduledForToday(task) && 
+    const todaysTasks = getFrequentTasks().filter(task => 
       task.start_time && 
       task.end_time
     );
@@ -72,50 +32,6 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
     if (todaysTasks.length === 0) {
       return { pastDue: null, current: null, upcoming: null };
     }
-    
-    // Group tasks by their key (title + start_time + end_time) and prioritize daily instances
-    const taskGroups: { [key: string]: Task[] } = {};
-    
-    todaysTasks.forEach(task => {
-      const key = `${task.title}-${task.start_time}-${task.end_time}`;
-      if (!taskGroups[key]) {
-        taskGroups[key] = [];
-      }
-      taskGroups[key].push(task);
-    });
-    
-    // For each group, prioritize daily instances over recurring tasks
-    const prioritizedTasks: Task[] = [];
-    
-    Object.values(taskGroups).forEach(group => {
-      // Find daily instance for today
-      const dailyInstance = group.find(task => 
-        task.date === today && 
-        !task.recur // This is a daily instance, not a recurring task
-      );
-      
-      // Find recurring task
-      const recurringTask = group.find(task => 
-        task.recur && 
-        task.recur !== 'once'
-      );
-      
-      // If we have a daily instance for today, use it
-      if (dailyInstance) {
-        prioritizedTasks.push(dailyInstance);
-      } 
-      // Otherwise, if we have a recurring task, use it
-      else if (recurringTask) {
-        prioritizedTasks.push(recurringTask);
-      }
-      // For one-time tasks, always include them
-      else {
-        const oneTimeTask = group.find(task => task.recur === 'once');
-        if (oneTimeTask) {
-          prioritizedTasks.push(oneTimeTask);
-        }
-      }
-    });
     
     const now = new Date();
     const currentHour = now.getHours();
@@ -127,7 +43,7 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
     let upcoming = null;
     
     // Sort tasks by start time
-    const sortedTasks = prioritizedTasks.sort((a, b) => {
+    const sortedTasks = todaysTasks.sort((a, b) => {
       const aStart = a.start_time!.split(':').map(Number);
       const bStart = b.start_time!.split(':').map(Number);
       return (aStart[0] * 60 + aStart[1]) - (bStart[0] * 60 + bStart[1]);
@@ -229,26 +145,64 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
   const handleGoalSelect = async (goalIds: string[]) => {
     try {
       const taskDate = getTaskDate(isRecurring, recurType, customDays);
-      const insertPayload = {
-        title: newTaskTitle,
-        is_done: false,
-        recur: isRecurring ? recurType : null,
-        custom_days: isRecurring && recurType === 'custom' ? customDays : null,
-        date: taskDate,
-        goal_id: goalIds.length > 0 ? goalIds[0] : null,
-        user_id: user.id,
-      };
+      
+      if (isRecurring) {
+        // Create a task template
+        const templatePayload = {
+          title: newTaskTitle,
+          recur_type: recurType,
+          custom_days: recurType === 'custom' ? customDays : null,
+          goal_id: goalIds.length > 0 ? goalIds[0] : null,
+          user_id: user.id,
+        };
 
-      // Create the task
-      const { data: task, error: taskError } = await supabase
-        .from('tasks')
-        .insert(insertPayload)
-        .select('*, goal:goals(*)')
-        .single();
+        const { error: templateError } = await supabase
+          .from('task_templates')
+          .insert(templatePayload)
+          .select('*, goal:goals(*)')
+          .single();
 
-      if (taskError) throw taskError;
+        if (templateError) throw templateError;
 
-      setTasks([task, ...tasks]);
+        // Generate tasks for today and the next few days
+        const { error: generateError } = await supabase.rpc('generate_tasks_for_range', {
+          start_date: taskDate,
+          end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+        });
+
+        if (generateError) throw generateError;
+
+        // Refresh tasks to get the newly generated ones
+        const { data: newTasks, error: tasksError } = await supabase
+          .from('tasks')
+          .select('*, goal:goals(*), template:task_templates(*)')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (tasksError) throw tasksError;
+        setTasks(newTasks || []);
+      } else {
+        // Create a one-time task
+        const insertPayload = {
+          title: newTaskTitle,
+          is_done: false,
+          recur: 'once',
+          date: taskDate,
+          goal_id: goalIds.length > 0 ? goalIds[0] : null,
+          user_id: user.id,
+        };
+
+        const { data: task, error: taskError } = await supabase
+          .from('tasks')
+          .insert(insertPayload)
+          .select('*, goal:goals(*)')
+          .single();
+
+        if (taskError) throw taskError;
+
+        setTasks([task, ...tasks]);
+      }
+
       setNewTaskTitle('');
       setIsRecurring(false);
       setRecurType('daily');
@@ -264,84 +218,25 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
       const task = tasks.find(t => t.id === taskId);
       if (!task) return;
 
-      // For recurring tasks, create a daily instance for today
-      if (task.recur && task.recur !== 'once') {
-        const today = new Date().toISOString().split('T')[0];
-        
-        // Check if a daily instance already exists for today
-        const existingDailyTask = tasks.find(t => 
-          t.title === task.title && 
-          t.date === today && 
-          t.start_time === task.start_time && 
-          t.end_time === task.end_time
-        );
+      // Update the task directly (whether it's a template instance or one-time task)
+      const { error } = await supabase
+        .from('tasks')
+        .update({ 
+          is_done: !currentStatus,
+          completed_at: !currentStatus ? new Date().toISOString() : null
+        })
+        .eq('id', taskId)
+        .eq('user_id', user.id);
 
-        if (existingDailyTask) {
-          // Update the existing daily instance
-          const { error } = await supabase
-            .from('tasks')
-            .update({ 
-              is_done: !currentStatus,
-              completed_at: !currentStatus ? new Date().toISOString() : null
-            })
-            .eq('id', existingDailyTask.id)
-            .eq('user_id', user.id);
+      if (error) throw error;
 
-          if (error) throw error;
-
-          setTasks(tasks.map(t => 
-            t.id === existingDailyTask.id ? { 
-              ...t, 
-              is_done: !currentStatus,
-              completed_at: !currentStatus ? new Date().toISOString() : null
-            } : t
-          ));
-        } else {
-          // Create a new daily instance for today
-          const dailyTaskData = {
-            title: task.title,
-            description: task.description,
-            start_time: task.start_time,
-            end_time: task.end_time,
-            goal_id: task.goal_id,
-            date: today,
-            is_done: !currentStatus,
-            completed_at: !currentStatus ? new Date().toISOString() : null,
-            user_id: user.id,
-            // Don't copy recur fields - this is a one-time instance
-          };
-
-          const { data: newTask, error } = await supabase
-            .from('tasks')
-            .insert([dailyTaskData])
-            .select('*, goal:goals(*)')
-            .single();
-
-          if (error) throw error;
-
-          setTasks([newTask, ...tasks]);
-        }
-      } else {
-        // For one-time tasks, update the original task
-        const { error } = await supabase
-          .from('tasks')
-          .update({ 
-            is_done: !currentStatus,
-            completed_at: !currentStatus ? new Date().toISOString() : null
-          })
-          .eq('id', taskId)
-          .eq('user_id', user.id);
-
-        if (error) throw error;
-
-        setTasks(tasks.map(task => 
-          task.id === taskId ? { 
-            ...task, 
-            is_done: !currentStatus,
-            completed_at: !currentStatus ? new Date().toISOString() : null
-          } : task
-        ));
-      }
+      setTasks(tasks.map(t => 
+        t.id === taskId ? { 
+          ...t, 
+          is_done: !currentStatus,
+          completed_at: !currentStatus ? new Date().toISOString() : null
+        } : t
+      ));
     } catch (error) {
       console.error('Error updating task:', error);
     }
@@ -349,92 +244,31 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
 
   const updateTaskStatus = async (taskId: string, status: 'completed' | 'skipped' | 'failed') => {
     try {
-      const today = new Date().toISOString().split('T')[0];
       const task = tasks.find(t => t.id === taskId);
       
       if (!task) return;
 
-      // For recurring tasks, create a daily instance for today
-      if (task.recur && task.recur !== 'once') {
-        // Check if a daily instance already exists for today
-        const existingDailyTask = tasks.find(t => 
-          t.title === task.title && 
-          t.date === today && 
-          t.start_time === task.start_time && 
-          t.end_time === task.end_time
-        );
+      // Update the task directly
+      const { error } = await supabase
+        .from('tasks')
+        .update({ 
+          completion_status: status,
+          is_done: status === 'completed',
+          completed_at: status === 'completed' ? new Date().toISOString() : null
+        })
+        .eq('id', taskId)
+        .eq('user_id', user.id);
 
-        if (existingDailyTask) {
-          // Update the existing daily instance
-          const { error } = await supabase
-            .from('tasks')
-            .update({ 
-              completion_status: status,
-              is_done: status === 'completed',
-              completed_at: status === 'completed' ? new Date().toISOString() : null
-            })
-            .eq('id', existingDailyTask.id)
-            .eq('user_id', user.id);
+      if (error) throw error;
 
-          if (error) throw error;
-
-          setTasks(tasks.map(t => 
-            t.id === existingDailyTask.id ? { 
-              ...t, 
-              completion_status: status,
-              is_done: status === 'completed',
-              completed_at: status === 'completed' ? new Date().toISOString() : null
-            } : t
-          ));
-        } else {
-          // Create a new daily instance for today
-          const dailyTaskData = {
-            title: task.title,
-            description: task.description,
-            start_time: task.start_time,
-            end_time: task.end_time,
-            goal_id: task.goal_id,
-            date: today,
-            completion_status: status,
-            is_done: status === 'completed',
-            completed_at: status === 'completed' ? new Date().toISOString() : null,
-            user_id: user.id,
-            // Don't copy recur fields - this is a one-time instance
-          };
-
-          const { data: newTask, error } = await supabase
-            .from('tasks')
-            .insert([dailyTaskData])
-            .select('*, goal:goals(*)')
-            .single();
-
-          if (error) throw error;
-
-          setTasks([newTask, ...tasks]);
-        }
-      } else {
-        // For one-time tasks, update the original task
-        const { error } = await supabase
-          .from('tasks')
-          .update({ 
-            completion_status: status,
-            is_done: status === 'completed',
-            completed_at: status === 'completed' ? new Date().toISOString() : null
-          })
-          .eq('id', taskId)
-          .eq('user_id', user.id);
-
-        if (error) throw error;
-
-        setTasks(tasks.map(t => 
-          t.id === taskId ? { 
-            ...t, 
-            completion_status: status,
-            is_done: status === 'completed',
-            completed_at: status === 'completed' ? new Date().toISOString() : null
-          } : t
-        ));
-      }
+      setTasks(tasks.map(t => 
+        t.id === taskId ? { 
+          ...t, 
+          completion_status: status,
+          is_done: status === 'completed',
+          completed_at: status === 'completed' ? new Date().toISOString() : null
+        } : t
+      ));
     } catch (error) {
       console.error('Error updating task status:', error);
     }
@@ -458,67 +292,61 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
     { value: 6, short: 'Sat', long: 'Saturday' },
   ];
 
-  // Get today's tasks (recurring or one-time events due today)
-  const getTodaysTasks = () => {
+  // Get frequent tasks (recurring tasks scheduled for today)
+  const getFrequentTasks = () => {
     const today = new Date().toISOString().split('T')[0];
     
-    // Group tasks by their key (title + start_time + end_time) and prioritize daily instances
-    const taskGroups: { [key: string]: Task[] } = {};
-    
-    tasks.forEach(task => {
-      const key = `${task.title}-${task.start_time}-${task.end_time}`;
-      if (!taskGroups[key]) {
-        taskGroups[key] = [];
+    const filteredTasks = tasks.filter(task => {
+      // Must be a task with a template (recurring task)
+      if (!task.template_id) {
+        return false;
       }
-      taskGroups[key].push(task);
-    });
-    
-    const result: Task[] = [];
-    
-    Object.values(taskGroups).forEach(group => {
-      // Find daily instance for today
-      const dailyInstance = group.find(task => 
-        task.date === today && 
-        !task.recur // This is a daily instance, not a recurring task
-      );
       
-      // Find recurring task
-      const recurringTask = group.find(task => 
-        task.recur && 
-        task.recur !== 'once' &&
-        isScheduledForToday(task)
-      );
-      
-      // If we have a daily instance for today, use it
-      if (dailyInstance) {
-        result.push(dailyInstance);
-      } 
-      // Otherwise, if we have a recurring task scheduled for today, use it
-      else if (recurringTask) {
-        result.push(recurringTask);
-      }
-      // For one-time tasks, always include them if scheduled for today
-      else {
-        const oneTimeTask = group.find(task => 
-          task.recur === 'once' && 
-          isScheduledForToday(task)
-        );
-        if (oneTimeTask) {
-          result.push(oneTimeTask);
-        }
-      }
+      // Check if it's scheduled for today
+      return task.date === today;
     });
-    
-    return result;
+
+    // Sort completed tasks to the top, but only if completed today
+    return filteredTasks.sort((a, b) => {
+      const aCompletedToday = a.completed_at && a.completed_at.startsWith(today);
+      const bCompletedToday = b.completed_at && b.completed_at.startsWith(today);
+      
+      if (aCompletedToday && !bCompletedToday) return -1;
+      if (!aCompletedToday && bCompletedToday) return 1;
+      return 0;
+    });
   };
 
-  // Get to-do list (tasks without a specific date)
+  // Get to-do list (one-time tasks)
   const getTodoListTasks = () => {
-    return tasks.filter(task => !task.date && !task.is_done);
-  };
+    const today = new Date().toISOString().split('T')[0];
+    
+    const filteredTasks = tasks.filter(task => {
+      // Must be a one-time task (no template_id)
+      if (task.template_id) {
+        return false;
+      }
+      
+      // Show incomplete tasks
+      if (!task.is_done) {
+        return true;
+      }
+      
+      // Show completed tasks only if they were scheduled for today AND completed today
+      if (task.completed_at && task.completed_at.startsWith(today) && task.date === today) {
+        return true;
+      }
+      
+      return false;
+    });
 
-  // Calculate statistics
-  const todaysTasks = getTodaysTasks();
+    // Sort completed tasks to the top
+    return filteredTasks.sort((a, b) => {
+      if (a.is_done && !b.is_done) return -1;
+      if (!a.is_done && b.is_done) return 1;
+      return 0;
+    });
+  };
 
   // Focus the input when expanding
   useEffect(() => {
@@ -558,7 +386,7 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
                 <div className="flex-1 min-w-0">
                   <h4 className="text-base sm:text-lg font-medium truncate">{pastDue.title}</h4>
                   {pastDue.start_time && pastDue.end_time && (
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-700">
                       {formatTime(pastDue.start_time)} - {formatTime(pastDue.end_time)}
                     </span>
                   )}
@@ -747,14 +575,14 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
       <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
         
         {/* Frequent Tasks Section */}
-        {todaysTasks.length > 0 && (
+        {getFrequentTasks().length > 0 && (
           <div className="mb-6">
             <h3 className="text-md font-medium text-forest-300 mb-3 flex items-center">
               <span className="mr-2">🔄</span>
               Frequent
             </h3>
             <div className="space-y-2">
-              {todaysTasks.map(task => (
+              {getFrequentTasks().map(task => (
                 <div key={task.id} className={`p-3 border rounded-lg transition-colors flex flex-col ${
                   task.is_done 
                     ? 'border-green-600 bg-green-900/20' 
@@ -830,7 +658,7 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
         )}
         
         {/* Show message if no incomplete tasks */}
-        {tasks.length > 0 && todaysTasks.length === 0 && (
+        {tasks.length > 0 && getFrequentTasks().length === 0 && getTodoListTasks().length === 0 && (
           <p className="text-slate-400">All tasks completed! 🎉</p>
         )}
       </div>

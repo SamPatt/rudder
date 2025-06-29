@@ -111,22 +111,16 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const taskData = {
-      title: formData.title,
-      description: formData.description,
-      start_time: formData.start_time,
-      end_time: formData.end_time,
-      recur: formData.recur,
-      custom_days: formData.recur === 'custom' ? formData.custom_days : null,
-      event_date: formData.recur === 'once' ? formData.event_date : null,
-      goal_id: formData.goal_id || null,
-      is_done: false,
-      date: formData.recur === 'once' ? formData.event_date : new Date().toISOString().split('T')[0],
-      user_id: user.id,
-    };
-
     if (editingTask) {
-      // Update existing task
+      // Update existing task - for now, just update the basic fields
+      const taskData = {
+        title: formData.title,
+        description: formData.description,
+        start_time: formData.start_time,
+        end_time: formData.end_time,
+        goal_id: formData.goal_id || null,
+      };
+
       const { error } = await supabase
         .from('tasks')
         .update(taskData)
@@ -151,28 +145,102 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
       }
     } else {
       // Create new task
-      const { data, error } = await supabase
-        .from('tasks')
-        .insert([taskData])
-        .select('*, goal:goals(*)')
-        .single();
+      if (formData.recur === 'once') {
+        // Create a one-time task
+        const taskData = {
+          title: formData.title,
+          description: formData.description,
+          start_time: formData.start_time,
+          end_time: formData.end_time,
+          recur: 'once',
+          event_date: formData.event_date,
+          goal_id: formData.goal_id || null,
+          is_done: false,
+          date: formData.event_date,
+          user_id: user.id,
+        };
 
-      if (error) {
-        console.error('Error creating task:', error);
+        const { data, error } = await supabase
+          .from('tasks')
+          .insert([taskData])
+          .select('*, goal:goals(*)')
+          .single();
+
+        if (error) {
+          console.error('Error creating task:', error);
+        } else {
+          setTasks([data, ...tasks]);
+          setFormData({
+            title: '',
+            description: '',
+            start_time: '09:00',
+            end_time: '10:00',
+            recur: 'daily',
+            custom_days: [],
+            event_date: new Date().toISOString().split('T')[0],
+            goal_id: null,
+          });
+          setSelectedGoalId(null);
+          setShowForm(false);
+        }
       } else {
-        setTasks([data, ...tasks]);
-        setFormData({
-          title: '',
-          description: '',
-          start_time: '09:00',
-          end_time: '10:00',
-          recur: 'daily',
-          custom_days: [],
-          event_date: new Date().toISOString().split('T')[0],
-          goal_id: null,
-        });
-        setSelectedGoalId(null);
-        setShowForm(false);
+        // Create a recurring task template
+        const templateData = {
+          title: formData.title,
+          description: formData.description,
+          start_time: formData.start_time,
+          end_time: formData.end_time,
+          recur_type: formData.recur,
+          custom_days: formData.recur === 'custom' ? formData.custom_days : null,
+          goal_id: formData.goal_id || null,
+          user_id: user.id,
+        };
+
+        const { error: templateError } = await supabase
+          .from('task_templates')
+          .insert(templateData)
+          .select('*, goal:goals(*)')
+          .single();
+
+        if (templateError) {
+          console.error('Error creating template:', templateError);
+        } else {
+          // Generate tasks for today and the next few days
+          const { error: generateError } = await supabase.rpc('generate_tasks_for_range', {
+            start_date: new Date().toISOString().split('T')[0],
+            end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+          });
+
+          if (generateError) {
+            console.error('Error generating tasks:', generateError);
+          } else {
+            // Refresh tasks to get the newly generated ones
+            const { data: newTasks, error: tasksError } = await supabase
+              .from('tasks')
+              .select('*, goal:goals(*), template:task_templates(*)')
+              .eq('user_id', user.id)
+              .order('created_at', { ascending: false });
+
+            if (tasksError) {
+              console.error('Error fetching tasks:', tasksError);
+            } else {
+              setTasks(newTasks || []);
+            }
+          }
+
+          setFormData({
+            title: '',
+            description: '',
+            start_time: '09:00',
+            end_time: '10:00',
+            recur: 'daily',
+            custom_days: [],
+            event_date: new Date().toISOString().split('T')[0],
+            goal_id: null,
+          });
+          setSelectedGoalId(null);
+          setShowForm(false);
+        }
       }
     }
   };
@@ -185,8 +253,8 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
       start_time: task.start_time || '09:00',
       end_time: task.end_time || '10:00',
       recur: task.recur || 'daily',
-      custom_days: task.custom_days || [],
-      event_date: task.event_date || new Date().toISOString().split('T')[0],
+      custom_days: [],
+      event_date: new Date().toISOString().split('T')[0],
       goal_id: task.goal_id || null,
     });
     setSelectedGoalId(task.goal_id || null);
@@ -242,52 +310,11 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
     }));
   };
 
-  const getDaysForTask = (task: Task): number[] => {
-    if (task.custom_days) {
-      return task.custom_days;
-    }
-    
-    switch (task.recur) {
-      case 'daily': return [0, 1, 2, 3, 4, 5, 6];
-      case 'weekdays': return [1, 2, 3, 4, 5];
-      default: return [];
-    }
-  };
-
   const isTaskScheduledForDate = (task: Task, date: Date): boolean => {
-    // Don't show recurring events for dates before they were created
-    const checkDate = new Date(date);
-    checkDate.setHours(0, 0, 0, 0);
-    
-    // Handle daily instances (tasks with recur: null)
-    if (!task.recur) {
-      const taskDateStr = task.date;
-      const currentDateStr = date.toISOString().split('T')[0];
-      return taskDateStr === currentDateStr;
-    }
-    
-    // For recurring events, only show if the date is on or after the creation date
-    if (task.recur !== 'once' && task.created_at) {
-      const createdDate = new Date(task.created_at);
-      createdDate.setHours(0, 0, 0, 0);
-      
-      if (checkDate < createdDate) {
-        return false;
-      }
-    }
-    
-    // Handle one-time events
-    if (task.recur === 'once' && task.event_date) {
-      const eventDateStr = new Date(task.event_date).toISOString().split('T')[0];
-      const currentDateStr = date.toISOString().split('T')[0];
-      const result = eventDateStr === currentDateStr;
-      return result;
-    }
-    
-    const dayOfWeek = date.getDay();
-    const days = getDaysForTask(task);
-    const result = days.includes(dayOfWeek);
-    return result;
+    // Only show if the date matches the task's date
+    const taskDateStr = task.date;
+    const currentDateStr = date.toISOString().split('T')[0];
+    return taskDateStr === currentDateStr;
   };
 
   const isTaskCurrent = (task: Task, date: Date): boolean => {

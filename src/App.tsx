@@ -41,7 +41,7 @@ function App() {
   const fetchInitialData = async () => {
     try {
       const [tasksResult, goalsResult, valuesResult] = await Promise.all([
-        supabase.from('tasks').select('*, goal:goals(*)').order('created_at', { ascending: false }),
+        supabase.from('tasks').select('*, goal:goals(*), template:task_templates(*)').order('created_at', { ascending: false }),
         supabase.from('goals').select('*, value:values(*)').order('created_at', { ascending: false }),
         supabase.from('values').select('*').order('created_at', { ascending: false })
       ]);
@@ -67,10 +67,10 @@ function App() {
       .channel('tasks_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, async (payload) => {
         if (payload.eventType === 'INSERT') {
-          // Fetch the task with its goal
+          // Fetch the task with its goal and template
           const { data: taskWithGoal } = await supabase
             .from('tasks')
-            .select('*, goal:goals(*)')
+            .select('*, goal:goals(*), template:task_templates(*)')
             .eq('id', payload.new.id)
             .single();
           
