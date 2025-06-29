@@ -2,7 +2,7 @@ const webpush = require('web-push');
 const fetch = require('node-fetch');
 
 webpush.setVapidDetails(
-  'git+rudder@sampatt.com',
+  'mailto:git@sampatt.com',
   process.env.VAPID_PUBLIC_KEY,
   process.env.VAPID_PRIVATE_KEY
 );
