@@ -17,11 +17,13 @@ function App() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [values, setValues] = useState<Value[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      setAuthLoading(false);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
@@ -119,6 +121,18 @@ function App() {
       supabase.removeChannel(valuesSubscription);
     };
   };
+
+  // Show loading screen while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-forest-500 mx-auto"></div>
+          <p className="mt-4 text-slate-400">Loading Rudder...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!user) return <Login />;
   if (user.email !== ALLOWED_EMAIL) {
