@@ -13,28 +13,36 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
       return;
     }
     const permission = await Notification.requestPermission();
+    console.log('Notification permission:', permission);
     if (permission !== 'granted') {
       alert('Notifications not enabled!');
       return;
     }
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-    });
-    // Save to Supabase
-    const { error } = await supabase
-      .from('push_subscriptions')
-      .upsert([
-        {
-          user_id: user.id,
-          subscription: sub
-        }
-      ], { onConflict: 'user_id' });
-    if (error) {
-      alert('Failed to save subscription to Supabase');
-    } else {
-      alert('Push subscription saved to Supabase!');
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+      console.log('Push subscription object:', sub);
+      // Save to Supabase
+      const { error } = await supabase
+        .from('push_subscriptions')
+        .upsert([
+          {
+            user_id: user.id,
+            subscription: sub
+          }
+        ], { onConflict: 'user_id' });
+      if (error) {
+        console.error('Supabase upsert error:', error);
+        alert('Failed to save subscription to Supabase');
+      } else {
+        alert('Push subscription saved to Supabase!');
+      }
+    } catch (err) {
+      console.error('Push registration error:', err);
+      alert('Failed to register for push notifications. See console for details.');
     }
   }
 
