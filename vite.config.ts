@@ -8,21 +8,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'supabase-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24 * 7 // 7 days
-              }
-            }
-          }
-        ]
+      injectManifest: {
+        swSrc: 'public/sw.js',
+        swDest: 'sw.js'
       },
       includeAssets: ['icon-192.png', 'icon-512.png'],
       manifest: {

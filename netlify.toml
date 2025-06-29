@@ -9,3 +9,7 @@
   from = "/*"
   to = "/index.html"
   status = 200 
+
+[[scheduled]]
+  path = "/.netlify/functions/send-task-notifications"
+  schedule = "*/1 * * * *" 

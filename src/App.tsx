@@ -9,6 +9,7 @@ import Schedule from './components/Schedule';
 import GoalManager from './components/GoalManager';
 import Navigation from './components/Navigation';
 import Login from './components/Login';
+import PushRegisterButton from './components/PushRegisterButton';
 
 const ALLOWED_EMAIL = import.meta.env.VITE_ALLOWED_EMAIL;
 
@@ -275,6 +276,8 @@ function AppContent() {
           } />
         </Routes>
       </main>
+
+      <PushRegisterButton user={user} />
     </div>
   );
 }
