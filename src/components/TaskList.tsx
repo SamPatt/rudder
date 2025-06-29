@@ -3,6 +3,7 @@ import { Task, Goal, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
 import GoalSelector from './GoalSelector';
 import { User } from '@supabase/supabase-js';
+import ConfirmationModal from './ConfirmationModal';
 
 interface TaskListProps {
   tasks: Task[];
@@ -22,6 +23,10 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
   const [customDays, setCustomDays] = useState<number[]>([]);
   const [editModalTask, setEditModalTask] = useState<Task | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{templateId: string, taskId: string | null} | null>(null);
+  const [showInstanceDeleteConfirm, setShowInstanceDeleteConfirm] = useState(false);
+  const [instanceDeleteTarget, setInstanceDeleteTarget] = useState<{taskId: string, templateId: string} | null>(null);
 
   const handleAddTask = () => {
     if (!newTaskTitle.trim()) return;
@@ -354,6 +359,39 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
     return firstUpcomingInstances.filter(task => !todayTemplateIds.has(task.template_id));
   };
 
+  const handleDeleteInstance = async () => {
+    if (instanceDeleteTarget) {
+      await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', instanceDeleteTarget.taskId)
+        .eq('user_id', user.id);
+      setTasks(tasks.filter(t => t.id !== instanceDeleteTarget.taskId));
+      setEditModalTask(null);
+      setShowInstanceDeleteConfirm(false);
+      setInstanceDeleteTarget(null);
+    }
+  };
+
+  const handleDeleteSeries = async () => {
+    if (instanceDeleteTarget) {
+      await supabase
+        .from('tasks')
+        .delete()
+        .eq('template_id', instanceDeleteTarget.templateId)
+        .eq('user_id', user.id);
+      await supabase
+        .from('task_templates')
+        .delete()
+        .eq('id', instanceDeleteTarget.templateId)
+        .eq('user_id', user.id);
+      setTasks(tasks.filter(t => t.template_id !== instanceDeleteTarget.templateId));
+      setEditModalTask(null);
+      setShowInstanceDeleteConfirm(false);
+      setInstanceDeleteTarget(null);
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Add New Task */}
@@ -647,14 +685,30 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
                       className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded"
                       onClick={async () => {
                         if (!editModalTask) return;
-                        const { error } = await supabase
-                          .from('tasks')
-                          .delete()
-                          .eq('id', editModalTask.id)
-                          .eq('user_id', user.id);
-                        if (!error) {
-                          setTasks(tasks.filter(t => t.id !== editModalTask.id));
-                          setEditModalTask(null);
+                        if (editModalTask.template_id) {
+                          // This is an instance of a recurring task, offer to delete just this instance or the whole series
+                          setShowInstanceDeleteConfirm(true);
+                          setInstanceDeleteTarget({ taskId: editModalTask.id, templateId: editModalTask.template_id });
+                        } else {
+                          // This is a template or a one-time task
+                          // Check if it is a template (recurring task template)
+                          const templateId = tasks.find(t => t.id === editModalTask.id)?.id;
+                          if (templateId && tasks.some(t => t.template_id === templateId)) {
+                            // Show confirmation modal before deleting all instances and template
+                            setShowDeleteConfirm(true);
+                            setDeleteTarget({ templateId, taskId: null });
+                          } else {
+                            // One-time task, just delete it
+                            const { error } = await supabase
+                              .from('tasks')
+                              .delete()
+                              .eq('id', editModalTask.id)
+                              .eq('user_id', user.id);
+                            if (!error) {
+                              setTasks(tasks.filter(t => t.id !== editModalTask.id));
+                              setEditModalTask(null);
+                            }
+                          }
                         }
                       }}
                     >
@@ -731,6 +785,64 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
         isOpen={showGoalSelector}
         multiple={true}
         selectedGoalIds={editingTaskId ? getCurrentTaskGoalIds() : []}
+      />
+
+      <ConfirmationModal
+        isOpen={showInstanceDeleteConfirm}
+        onClose={() => setShowInstanceDeleteConfirm(false)}
+        onConfirm={undefined}
+        title="Delete Task Instance"
+        message={
+          <div>
+            <div>Do you want to delete just this instance, or the entire recurring series?</div>
+            <div className="flex gap-3 justify-end mt-6">
+              <button
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium"
+                onClick={handleDeleteInstance}
+              >
+                Delete Instance
+              </button>
+              <button
+                className="px-4 py-2 bg-red-800 hover:bg-red-900 text-white rounded font-medium"
+                onClick={handleDeleteSeries}
+              >
+                Delete Series
+              </button>
+            </div>
+          </div>
+        }
+        confirmText={undefined}
+        cancelText="Cancel"
+        confirmButtonVariant="danger"
+      />
+      <ConfirmationModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={async () => {
+          if (deleteTarget) {
+            // Delete all tasks with this template_id
+            await supabase
+              .from('tasks')
+              .delete()
+              .eq('template_id', deleteTarget.templateId)
+              .eq('user_id', user.id);
+            // Delete the template itself
+            await supabase
+              .from('task_templates')
+              .delete()
+              .eq('id', deleteTarget.templateId)
+              .eq('user_id', user.id);
+            setTasks(tasks.filter(t => t.template_id !== deleteTarget.templateId));
+            setEditModalTask(null);
+            setShowDeleteConfirm(false);
+            setDeleteTarget(null);
+          }
+        }}
+        title="Delete Recurring Task Series"
+        message="This will delete the recurring template and all its scheduled tasks. Are you sure?"
+        confirmText="Delete Series"
+        cancelText="Cancel"
+        confirmButtonVariant="danger"
       />
     </div>
   );

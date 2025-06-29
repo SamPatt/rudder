@@ -3,9 +3,9 @@ import React from 'react';
 interface ConfirmationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm?: () => void;
   title: string;
-  message: string;
+  message?: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   confirmButtonVariant?: 'danger' | 'primary';
@@ -24,7 +24,7 @@ export default function ConfirmationModal({
   if (!isOpen) return null;
 
   const handleConfirm = () => {
-    onConfirm();
+    if (onConfirm) onConfirm();
     onClose();
   };
 
@@ -50,7 +50,11 @@ export default function ConfirmationModal({
 
         {/* Content */}
         <div className="p-6">
-          <p className="text-slate-300 leading-relaxed">{message}</p>
+          {typeof message === 'string' ? (
+            <p className="text-slate-300 leading-relaxed">{message}</p>
+          ) : (
+            message
+          )}
         </div>
 
         {/* Footer */}
@@ -61,16 +65,18 @@ export default function ConfirmationModal({
           >
             {cancelText}
           </button>
-          <button
-            onClick={handleConfirm}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
-              confirmButtonVariant === 'danger'
-                ? 'bg-red-600 text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500'
-                : 'bg-forest-600 text-white hover:bg-forest-700 focus:outline-none focus:ring-2 focus:ring-forest-500'
-            }`}
-          >
-            {confirmText}
-          </button>
+          {onConfirm && confirmText && (
+            <button
+              onClick={handleConfirm}
+              className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                confirmButtonVariant === 'danger'
+                  ? 'bg-red-600 text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500'
+                  : 'bg-forest-600 text-white hover:bg-forest-700 focus:outline-none focus:ring-2 focus:ring-forest-500'
+              }`}
+            >
+              {confirmText}
+            </button>
+          )}
         </div>
       </div>
     </div>
