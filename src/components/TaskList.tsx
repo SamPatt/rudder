@@ -317,7 +317,10 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
   // Recurring tasks scheduled for future dates (incomplete only)
   const getFrequentUpcomingTasks = () => {
     const today = new Date().toISOString().split('T')[0];
-    return tasks.filter(task => {
+    const todayTasks = getFrequentTodayTasks();
+    
+    // Get all upcoming recurring tasks
+    const allUpcomingTasks = tasks.filter(task => {
       // Must be a task with a template (recurring task)
       if (!task.template_id) {
         return false;
@@ -326,6 +329,27 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
       // Must be in the future
       return task.date > today;
     });
+
+    // Group by template_id and only keep the first (earliest) instance of each template
+    const templateGroups: { [templateId: string]: Task[] } = {};
+    allUpcomingTasks.forEach(task => {
+      if (!templateGroups[task.template_id!]) {
+        templateGroups[task.template_id!] = [];
+      }
+      templateGroups[task.template_id!].push(task);
+    });
+
+    // For each template, only keep the earliest upcoming instance
+    const firstUpcomingInstances: Task[] = [];
+    Object.values(templateGroups).forEach(templateTasks => {
+      // Sort by date and take the first one
+      const sortedTasks = templateTasks.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      firstUpcomingInstances.push(sortedTasks[0]);
+    });
+
+    // Filter out any templates that already have a task in "Today"
+    const todayTemplateIds = new Set(todayTasks.map(task => task.template_id));
+    return firstUpcomingInstances.filter(task => !todayTemplateIds.has(task.template_id));
   };
 
   return (

@@ -28,9 +28,9 @@ function AppContent() {
   const location = useLocation();
 
   const navItems = [
-    { path: '/', label: 'Dashboard', icon: '📊' },
-    { path: '/tasks', label: 'Tasks', icon: '📝' },
+    { path: '/', label: 'Dashboard', icon: '��' },
     { path: '/schedule', label: 'Schedule', icon: '📅' },
+    { path: '/tasks', label: 'Tasks', icon: '📝' },
     { path: '/goals', label: 'Goals', icon: '🎯' }
   ];
 

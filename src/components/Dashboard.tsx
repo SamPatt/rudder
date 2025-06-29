@@ -23,17 +23,21 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
 
   // Get tasks for the event cards (past due, current, upcoming)
   const getEventTasks = () => {
-    // Get all tasks that are scheduled for today and have time data
-    const todaysTasks = getFrequentTasks().filter(task => 
+    // Use timezone-safe date calculation (local midnight)
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().split('T')[0];
+    
+    // Get all tasks scheduled for today that have time data (both recurring and one-time)
+    const todaysTasks = tasks.filter(task => 
       task.start_time && 
-      task.end_time
+      task.end_time &&
+      task.date === today
     );
     
     if (todaysTasks.length === 0) {
       return { pastDue: null, current: null, upcoming: null };
     }
     
-    const now = new Date();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
     const currentMinutes = currentHour * 60 + currentMinute;
@@ -99,7 +103,9 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
 
   // Helper function to determine the appropriate date for a task
   const getTaskDate = (isRecurring: boolean, recurType: string, customDays: number[]): string => {
-    const today = new Date();
+    // Use timezone-safe date calculation (local midnight)
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const todayStr = today.toISOString().split('T')[0];
     
     if (!isRecurring) {

@@ -44,7 +44,11 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
     event_date: new Date().toISOString().split('T')[0],
     goal_id: null as string | null,
   });
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+  });
   const [showGoalSelector, setShowGoalSelector] = useState(false);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const lastStartTimeRef = useRef(formData.start_time);
@@ -59,22 +63,45 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
   const getScheduledTasks = () => {
     const scheduledTasks = tasks.filter(task => task.start_time && task.end_time);
     
+    // Debug: Log all tasks with start/end times
+    console.log('=== DEBUG: getScheduledTasks ===');
+    console.log('All tasks with start/end times:', scheduledTasks.map(t => ({
+      id: t.id,
+      title: t.title,
+      date: t.date,
+      recur: t.recur,
+      start_time: t.start_time,
+      end_time: t.end_time,
+      template_id: t.template_id
+    })));
+    console.log('Current date being viewed:', currentDate.toISOString().split('T')[0]);
+    
     // For each day, prioritize daily instances over recurring tasks
     const result: Task[] = [];
     
-    // Group tasks by their key (title + start_time + end_time)
+    // Group tasks by their key (title + start_time + end_time), but only for recurring tasks
     const taskGroups: { [key: string]: Task[] } = {};
     
     scheduledTasks.forEach(task => {
-      const key = `${task.title}-${task.start_time}-${task.end_time}`;
-      if (!taskGroups[key]) {
-        taskGroups[key] = [];
+      // Group recurring tasks (including those with template_id, even if recur is null)
+      if ((task.recur && task.recur !== 'once') || task.template_id) {
+        const key = `${task.title}-${task.start_time}-${task.end_time}`;
+        if (!taskGroups[key]) {
+          taskGroups[key] = [];
+        }
+        taskGroups[key].push(task);
+        console.log(`Added recurring task to group "${key}": ${task.title} (recur: ${task.recur}, template_id: ${task.template_id}, date: ${task.date})`);
+      } else {
+        console.log(`Skipped task for grouping: ${task.title} (recur: ${task.recur}, template_id: ${task.template_id})`);
       }
-      taskGroups[key].push(task);
     });
     
-    // For each group, prioritize daily instances for the current date
+    console.log('Recurring task groups:', taskGroups);
+    
+    // Handle recurring tasks (grouped)
     Object.values(taskGroups).forEach(group => {
+      console.log(`Processing group with ${group.length} tasks: ${group[0]?.title}`);
+      
       // Find daily instance for the current date (not just today)
       const dailyInstance = group.find(task => 
         task.date === currentDate.toISOString().split('T')[0] && 
@@ -83,27 +110,49 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
       
       // Find recurring task
       const recurringTask = group.find(task => 
-        task.recur && 
-        task.recur !== 'once' &&
+        (task.recur && task.recur !== 'once') &&
+        isTaskScheduledForDate(task, currentDate)
+      ) || group.find(task => 
+        task.template_id &&
         isTaskScheduledForDate(task, currentDate)
       );
+      
+      console.log(`Group ${group[0]?.title}: dailyInstance=${!!dailyInstance}, recurringTask=${!!recurringTask}`);
+      console.log(`Group tasks:`, group.map(t => ({ title: t.title, date: t.date, recur: t.recur, isScheduled: isTaskScheduledForDate(t, currentDate) })));
       
       // If we have a daily instance for the current date, use it
       if (dailyInstance) {
         result.push(dailyInstance);
+        console.log(`Added daily instance: ${dailyInstance.title}`);
       } 
       // Otherwise, if we have a recurring task scheduled for this date, use it
       else if (recurringTask) {
         result.push(recurringTask);
-      }
-      // For one-time tasks, always include them
-      else {
-        const oneTimeTask = group.find(task => task.recur === 'once');
-        if (oneTimeTask && isTaskScheduledForDate(oneTimeTask, currentDate)) {
-          result.push(oneTimeTask);
-        }
+        console.log(`Added recurring task: ${recurringTask.title}`);
+      } else {
+        console.log(`No task selected for group: ${group[0]?.title}`);
       }
     });
+    
+    // Handle one-time tasks separately (don't group them)
+    const oneTimeTasks = scheduledTasks.filter(task => task.recur === 'once');
+    console.log('One-time tasks found:', oneTimeTasks.map(t => ({
+      title: t.title,
+      date: t.date,
+      isScheduledForCurrentDate: isTaskScheduledForDate(t, currentDate)
+    })));
+    
+    oneTimeTasks.forEach(task => {
+      if (isTaskScheduledForDate(task, currentDate)) {
+        result.push(task);
+        console.log(`Added one-time task: ${task.title} for date ${task.date}`);
+      } else {
+        console.log(`Skipped one-time task: ${task.title} (scheduled for ${task.date}, viewing ${currentDate.toISOString().split('T')[0]})`);
+      }
+    });
+    
+    console.log('Final result:', result.map(t => ({ title: t.title, date: t.date, recur: t.recur })));
+    console.log('=== END DEBUG ===');
     
     return result;
   };
@@ -153,7 +202,6 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
           start_time: formData.start_time,
           end_time: formData.end_time,
           recur: 'once',
-          event_date: formData.event_date,
           goal_id: formData.goal_id || null,
           is_done: false,
           date: formData.event_date,
@@ -314,7 +362,14 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
     // Only show if the date matches the task's date
     const taskDateStr = task.date;
     const currentDateStr = date.toISOString().split('T')[0];
-    return taskDateStr === currentDateStr;
+    const result = taskDateStr === currentDateStr;
+    
+    // Debug logging for date comparison issues
+    if (task.recur && task.recur !== 'once') {
+      console.log(`Date comparison for recurring task "${task.title}": taskDate=${taskDateStr}, currentDate=${currentDateStr}, result=${result}`);
+    }
+    
+    return result;
   };
 
   const isTaskCurrent = (task: Task, date: Date): boolean => {
@@ -564,21 +619,30 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
 
   const navigateDate = (direction: 'prev' | 'next') => {
     const newDate = new Date(currentDate);
+    console.log(`navigateDate: direction=${direction}, currentDate=${currentDate.toISOString()}`);
+    
     if (direction === 'prev') {
       newDate.setDate(newDate.getDate() - 1);
     } else {
       newDate.setDate(newDate.getDate() + 1);
     }
+    
+    // Ensure the date is set to local time (midnight)
+    newDate.setHours(0, 0, 0, 0);
+    
+    console.log(`navigateDate: newDate=${newDate.toISOString()}`);
     setCurrentDate(newDate);
   };
 
   const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', { 
+    const formatted = date.toLocaleDateString('en-US', { 
       weekday: 'long', 
       year: 'numeric', 
       month: 'long', 
       day: 'numeric' 
     });
+    console.log(`formatDate: input=${date.toISOString()}, output="${formatted}"`);
+    return formatted;
   };
 
   const isToday = (date: Date) => {
@@ -783,7 +847,11 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
               &lt;
             </button>
             <button
-              onClick={() => setCurrentDate(new Date())}
+              onClick={() => {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                setCurrentDate(today);
+              }}
               className={`px-3 py-1 rounded transition-colors text-sm ${
                 isToday(currentDate) 
                   ? 'bg-green-600 text-white' 
@@ -831,7 +899,8 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
               date: t.date,
               recur: t.recur,
               is_done: t.is_done,
-              completion_status: t.completion_status
+              completion_status: t.completion_status,
+              completed_at: t.completed_at
             })));
             
             const visibleBlocks = allScheduledTasks
@@ -873,6 +942,17 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
               const width = colCount === 1 ? '100%' : `calc((100% - 0.5rem * ${colCount - 1}) / ${colCount})`;
               const left = colCount === 1 ? '0' : `calc((${width} + 0.5rem) * ${task._col})`;
               const isActive = activeTaskId === task.id;
+              
+              // Debug styling logic
+              console.log(`Task "${task.title}" styling:`, {
+                completion_status: task.completion_status,
+                is_done: task.is_done,
+                isCurrentTime,
+                isPastDue: isPastDue(task, currentDate),
+                willShowAsCompleted: task.completion_status === 'completed',
+                willShowAsPastDue: isPastDue(task, currentDate)
+              });
+              
               return (
                 <div
                   key={task.id}
