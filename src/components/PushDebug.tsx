@@ -13,6 +13,8 @@ export default function PushDebug() {
         permission: Notification.permission,
         https: location.protocol === 'https:',
         hostname: location.hostname,
+        vapidKeyExists: !!import.meta.env.VITE_VAPID_PUBLIC_KEY,
+        vapidKeyLength: import.meta.env.VITE_VAPID_PUBLIC_KEY?.length || 0,
       };
 
       if ('serviceWorker' in navigator) {
@@ -38,8 +40,8 @@ export default function PushDebug() {
 
   return (
     <div className="bg-gray-100 p-4 rounded text-xs">
-      <h3 className="font-bold mb-2">Push Notification Debug Info:</h3>
-      <pre className="whitespace-pre-wrap overflow-auto">
+      <h3 className="font-bold mb-2 text-gray-800">Push Notification Debug Info:</h3>
+      <pre className="whitespace-pre-wrap overflow-auto text-gray-800">
         {JSON.stringify(debugInfo, null, 2)}
       </pre>
     </div>

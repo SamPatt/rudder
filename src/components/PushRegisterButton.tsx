@@ -18,6 +18,12 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
       return;
     }
 
+    setStatus('Checking VAPID key...');
+    if (!VAPID_PUBLIC_KEY) {
+      setStatus('Error: VAPID public key is not configured.');
+      return;
+    }
+
     setStatus('Requesting notification permission...');
     const permission = await Notification.requestPermission();
     console.log('Notification permission:', permission);
@@ -32,9 +38,19 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
       const reg = await navigator.serviceWorker.ready;
       setStatus('Creating push subscription...');
       
+      // Convert VAPID key with better error handling
+      let applicationServerKey;
+      try {
+        applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+      } catch (error) {
+        console.error('VAPID key conversion error:', error);
+        setStatus(`Error: Invalid VAPID key format: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return;
+      }
+      
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        applicationServerKey: applicationServerKey
       });
       
       console.log('Push subscription object:', sub);
@@ -65,12 +81,21 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
   }
 
   function urlBase64ToUint8Array(base64String: string) {
+    if (!base64String || typeof base64String !== 'string') {
+      throw new Error('VAPID key is not a valid string');
+    }
+    
     const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
     const base64 = (base64String + padding)
       .replace(/-/g, '+')
       .replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+    
+    try {
+      const rawData = window.atob(base64);
+      return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+    } catch (error) {
+      throw new Error(`Failed to decode VAPID key: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   return (
