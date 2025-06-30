@@ -149,6 +149,60 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
     }
   };
 
+  const testNotification = async () => {
+    try {
+      setStatus('Testing notification...');
+      
+      // Test if service worker is registered
+      const registration = await navigator.serviceWorker.getRegistration();
+      if (!registration) {
+        setStatus('❌ No service worker found');
+        return;
+      }
+      
+      // Test if we can show notifications
+      if (Notification.permission !== 'granted') {
+        setStatus('❌ Notification permission not granted');
+        return;
+      }
+      
+      // Show a test notification directly
+      new Notification('Test Notification', {
+        body: 'This is a direct test notification',
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        tag: 'test-direct',
+        requireInteraction: true
+      });
+      
+      setStatus('✅ Direct notification sent! Check if you see it.');
+      
+      // Also try to send a push notification to test the service worker
+      setTimeout(async () => {
+        try {
+          const response = await fetch('/.netlify/functions/test-push', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ test: true })
+          });
+          
+          const result = await response.json();
+          console.log('Test push result:', result);
+          setStatus(`✅ Test push sent! Result: ${JSON.stringify(result)}`);
+        } catch (error) {
+          console.error('Test push error:', error);
+          setStatus(`❌ Test push failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Test notification error:', error);
+      setStatus(`❌ Test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   function urlBase64ToUint8Array(base64String: string) {
     if (!base64String || typeof base64String !== 'string') {
       throw new Error('VAPID key is not a valid string');
@@ -189,6 +243,13 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
         className="w-full px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white text-sm rounded transition-colors"
       >
         {isRegistering ? 'Registering...' : 'Register for Push Notifications'}
+      </button>
+      
+      <button
+        onClick={testNotification}
+        className="w-full px-3 py-2 bg-yellow-600 hover:bg-yellow-700 text-white text-sm rounded transition-colors"
+      >
+        Test Notification
       </button>
       
       {status && (
