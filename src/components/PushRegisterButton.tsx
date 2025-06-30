@@ -1,84 +1,100 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { User } from '@supabase/supabase-js';
 
 interface PushRegisterButtonProps {
-  user: { id: string };
+  user: User;
 }
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
 export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
+  const [isRegistering, setIsRegistering] = useState(false);
   const [status, setStatus] = useState<string>('');
 
-  async function registerForPush() {
-    setStatus('Checking browser support...');
-    
+  const checkNotificationStatus = () => {
+    if (!('Notification' in window)) {
+      setStatus('Notifications not supported in this browser');
+      return;
+    }
+
+    switch (Notification.permission) {
+      case 'granted':
+        setStatus('✅ Notifications enabled');
+        break;
+      case 'denied':
+        setStatus('❌ Notifications blocked - please enable in browser settings');
+        break;
+      case 'default':
+        setStatus('⏳ Notifications not yet requested');
+        break;
+    }
+  };
+
+  const registerForPushNotifications = async () => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      setStatus('Error: Push notifications are not supported in this browser.');
+      setStatus('Push notifications not supported in this browser');
       return;
     }
 
-    setStatus('Checking VAPID key...');
-    if (!VAPID_PUBLIC_KEY) {
-      setStatus('Error: VAPID public key is not configured.');
-      return;
-    }
+    setIsRegistering(true);
+    setStatus('Registering...');
 
-    setStatus('Requesting notification permission...');
-    const permission = await Notification.requestPermission();
-    console.log('Notification permission:', permission);
-    
-    if (permission !== 'granted') {
-      setStatus('Error: Notifications not enabled! Please allow notifications and try again.');
-      return;
-    }
-
-    setStatus('Getting service worker...');
     try {
-      const reg = await navigator.serviceWorker.ready;
-      setStatus('Creating push subscription...');
-      
-      // Convert VAPID key with better error handling
-      let applicationServerKey;
-      try {
-        applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
-      } catch (error) {
-        console.error('VAPID key conversion error:', error);
-        setStatus(`Error: Invalid VAPID key format: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Check if service worker is registered
+      const registration = await navigator.serviceWorker.getRegistration();
+      if (!registration) {
+        setStatus('Service worker not registered. Please refresh the page.');
         return;
       }
-      
-      const sub = await reg.pushManager.subscribe({
+
+      // Request notification permission
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setStatus('Notification permission denied');
+        return;
+      }
+
+      // Convert VAPID key
+      const applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+
+      // Get push subscription
+      const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: applicationServerKey
       });
-      
-      console.log('Push subscription object:', sub);
-      setStatus('Saving subscription to database...');
-      
-      // Save to Supabase
+
+      // Save subscription to database
       const { error } = await supabase
         .from('push_subscriptions')
-        .upsert([
-          {
-            user_id: user.id,
-            subscription: sub
-          }
-        ], { onConflict: 'user_id' });
-        
+        .upsert({
+          user_id: user.id,
+          subscription: subscription.toJSON()
+        });
+
       if (error) {
-        console.error('Supabase upsert error:', error);
-        setStatus(`Error: Failed to save subscription to database: ${error.message}`);
-      } else {
-        setStatus('Success! Push notifications are now enabled.');
-        setTimeout(() => setStatus(''), 3000); // Clear success message after 3 seconds
+        console.error('Error saving subscription:', error);
+        setStatus('Error saving subscription');
+        return;
       }
-    } catch (err) {
-      console.error('Push registration error:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setStatus(`Error: Failed to register for push notifications: ${errorMessage}`);
+
+      setStatus('✅ Push notifications registered successfully!');
+      
+      // Test notification
+      setTimeout(() => {
+        new Notification('Test Notification', {
+          body: 'If you see this, push notifications are working!',
+          icon: '/icon-192.png'
+        });
+      }, 1000);
+
+    } catch (error) {
+      console.error('Error registering for push notifications:', error);
+      setStatus('Error registering for push notifications');
+    } finally {
+      setIsRegistering(false);
     }
-  }
+  };
 
   function urlBase64ToUint8Array(base64String: string) {
     if (!base64String || typeof base64String !== 'string') {
@@ -101,18 +117,22 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
   return (
     <div className="space-y-2">
       <button
-        className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
-        onClick={registerForPush}
-        disabled={status.includes('Checking') || status.includes('Requesting') || status.includes('Creating') || status.includes('Saving')}
+        onClick={checkNotificationStatus}
+        className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
       >
-        Enable Push Notifications
+        Check Notification Status
       </button>
+      
+      <button
+        onClick={registerForPushNotifications}
+        disabled={isRegistering}
+        className="w-full px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white text-sm rounded transition-colors"
+      >
+        {isRegistering ? 'Registering...' : 'Register for Push Notifications'}
+      </button>
+      
       {status && (
-        <div className={`text-sm p-2 rounded ${
-          status.includes('Error') ? 'bg-red-100 text-red-700' : 
-          status.includes('Success') ? 'bg-green-100 text-green-700' : 
-          'bg-blue-100 text-blue-700'
-        }`}>
+        <div className="text-xs text-gray-300 mt-2 p-2 bg-gray-800 rounded">
           {status}
         </div>
       )}

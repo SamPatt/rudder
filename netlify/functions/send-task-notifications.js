@@ -52,16 +52,21 @@ exports.handler = async function(event, context) {
   const nowUTC = now.toISOString();
   const nowDate = now.toISOString().split('T')[0]; // YYYY-MM-DD in UTC
   
+  // Add a 5-minute buffer to catch tasks that started just before the function triggered
+  const bufferTime = new Date(now.getTime() - 5 * 60 * 1000); // 5 minutes ago
+  const bufferTimeUTC = bufferTime.toISOString();
+  
   // Calculate 1 hour from now in UTC
   const futureTime = new Date(now.getTime() + 60 * 60 * 1000);
   const futureTimeUTC = futureTime.toISOString();
 
   console.log(`Function triggered at UTC time: ${nowUTC}`);
-  console.log(`Looking for tasks between ${nowUTC} and ${futureTimeUTC} on ${nowDate} (UTC)`);
-  console.log(`Query URL will be: ${supabaseUrl}/rest/v1/tasks?date=eq.${nowDate}&start_time=gte.${nowUTC}&start_time=lte.${futureTimeUTC}&completed_at=is.null&order=start_time.asc`);
+  console.log(`Looking for tasks between ${bufferTimeUTC} (5min ago) and ${futureTimeUTC} (1hr from now) on ${nowDate} (UTC)`);
+  console.log(`Query URL will be: ${supabaseUrl}/rest/v1/tasks?date=eq.${nowDate}&start_time=gte.${bufferTimeUTC}&start_time=lt.${futureTimeUTC}&completed_at=is.null&order=start_time.asc`);
 
   // Query for all tasks in the next hour (completed_at is null for incomplete tasks)
-  const taskRes = await fetch(`${supabaseUrl}/rest/v1/tasks?date=eq.${nowDate}&start_time=gte.${nowUTC}&start_time=lte.${futureTimeUTC}&completed_at=is.null&order=start_time.asc`, {
+  // Use buffer to catch tasks that started just before function triggered
+  const taskRes = await fetch(`${supabaseUrl}/rest/v1/tasks?date=eq.${nowDate}&start_time=gte.${bufferTimeUTC}&start_time=lt.${futureTimeUTC}&completed_at=is.null&order=start_time.asc`, {
     headers: {
       apikey: supabaseKey,
       Authorization: `Bearer ${supabaseKey}`,
@@ -70,6 +75,18 @@ exports.handler = async function(event, context) {
   console.log('Tasks fetch status:', taskRes.status);
   const tasks = await taskRes.json();
   console.log('Tasks fetch body:', tasks);
+
+  // Debug: Log each task's start time to verify the window
+  if (Array.isArray(tasks) && tasks.length > 0) {
+    console.log('Task start times in window:');
+    tasks.forEach(task => {
+      const taskStart = new Date(task.start_time);
+      const isInWindow = taskStart >= new Date(bufferTimeUTC) && taskStart < new Date(futureTimeUTC);
+      const hasStarted = taskStart <= new Date(nowUTC);
+      const status = hasStarted ? 'STARTED' : 'UPCOMING';
+      console.log(`  - ${task.title}: ${task.start_time} (${status}, in window: ${isInWindow})`);
+    });
+  }
 
   // 3. Send a comprehensive notification for all tasks
   let sent = 0;
@@ -106,7 +123,7 @@ exports.handler = async function(event, context) {
       sent, 
       tasks: Array.isArray(tasks) ? tasks.length : 'n/a', 
       subscriptions: Array.isArray(subscriptions) ? subscriptions.length : 'n/a',
-      queryTime: `${nowUTC}-${futureTimeUTC}`,
+      queryTime: `${bufferTimeUTC}-${futureTimeUTC}`,
       queryDate: nowDate
     })
   };
