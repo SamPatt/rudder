@@ -66,6 +66,17 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
     setStatus('Registering...');
 
     try {
+      // Check authentication status
+      const { data: { user: currentUser }, error: authError } = await supabase.auth.getUser();
+      if (authError || !currentUser) {
+        console.error('Authentication error:', authError);
+        setStatus('Authentication error - please log in again');
+        return;
+      }
+      
+      console.log('Current user:', currentUser.id);
+      console.log('User session:', await supabase.auth.getSession());
+
       // Check if service worker is registered
       const registration = await navigator.serviceWorker.getRegistration();
       if (!registration) {
@@ -93,13 +104,22 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
       console.log('Saving subscription for user:', user.id);
       console.log('Subscription data:', subscription.toJSON());
       
+      // First try to delete any existing subscription for this user
+      const { error: deleteError } = await supabase
+        .from('push_subscriptions')
+        .delete()
+        .eq('user_id', user.id);
+
+      if (deleteError) {
+        console.error('Error deleting existing subscription:', deleteError);
+      }
+
+      // Then insert the new subscription
       const { data, error } = await supabase
         .from('push_subscriptions')
-        .upsert({
+        .insert({
           user_id: user.id,
           subscription: subscription.toJSON()
-        }, {
-          onConflict: 'user_id'
         })
         .select();
 
