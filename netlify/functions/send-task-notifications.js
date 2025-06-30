@@ -11,6 +11,19 @@ exports.handler = async function(event, context) {
   console.log('send-task-notifications function triggered');
   console.log('Event:', event);
   console.log('Context:', context);
+  
+  // Handle scheduled function invocation
+  let nextRun = null;
+  if (event.body) {
+    try {
+      const body = JSON.parse(event.body);
+      nextRun = body.next_run;
+      console.log('Next scheduled run:', nextRun);
+    } catch (err) {
+      console.log('Not a scheduled invocation or invalid JSON body');
+    }
+  }
+
   // 1. Fetch your push subscription(s) from Supabase
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY;

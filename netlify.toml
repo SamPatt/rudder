@@ -10,6 +10,5 @@
   to = "/index.html"
   status = 200 
 
-[[scheduled]]
-  path = "/.netlify/functions/send-task-notifications"
-  schedule = "*/1 * * * *" 
+[functions."send-task-notifications"]
+schedule = "0 * * * *"  # Every hour at the top of the hour 
