@@ -166,9 +166,9 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
         return;
       }
       
-      // Show a test notification directly
-      new Notification('Test Notification', {
-        body: 'This is a direct test notification',
+      // Show a test notification using the service worker
+      await registration.showNotification('Test Notification', {
+        body: 'This is a direct test notification via service worker',
         icon: '/icon-192.png',
         badge: '/icon-192.png',
         tag: 'test-direct',
