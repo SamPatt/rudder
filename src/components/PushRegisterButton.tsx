@@ -169,10 +169,11 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
       // Show a test notification using the service worker
       await registration.showNotification('Test Notification', {
         body: 'This is a direct test notification via service worker',
-        icon: 'https://ruddertasks.netlify.app/icon-192.png',
-        badge: 'https://ruddertasks.netlify.app/icon-192.png',
+        icon: 'https://ruddertasks.netlify.app/icon-72.png',
+        badge: 'https://ruddertasks.netlify.app/icon-72.png',
         tag: 'test-direct',
-        requireInteraction: true
+        requireInteraction: true,
+        silent: false
       });
       
       setStatus('✅ Direct notification sent! Check if you see it.');
