@@ -3,11 +3,22 @@ const { createClient } = require('@supabase/supabase-js');
 exports.handler = async function(event, context) {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+  const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
   
-  if (!supabaseUrl || !supabaseServiceKey) {
+  const missingVars = [];
+  if (!supabaseUrl) missingVars.push('VITE_SUPABASE_URL');
+  if (!supabaseServiceKey) missingVars.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!vapidPublicKey) missingVars.push('VAPID_PUBLIC_KEY');
+  if (!vapidPrivateKey) missingVars.push('VAPID_PRIVATE_KEY');
+  
+  if (missingVars.length > 0) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Missing environment variables' })
+      body: JSON.stringify({ 
+        error: 'Missing environment variables',
+        missing: missingVars
+      })
     };
   }
 
@@ -51,8 +62,8 @@ exports.handler = async function(event, context) {
         const payload = JSON.stringify({
           title: '🧪 Test Notification',
           body: `This is a test notification sent at ${new Date().toISOString()}`,
-          icon: '/icon-192.png',
-          badge: '/icon-192.png',
+          icon: 'https://your-site.netlify.app/icon-192.png',
+          badge: 'https://your-site.netlify.app/icon-192.png',
           tag: 'test-notification',
           requireInteraction: true
         });

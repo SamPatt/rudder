@@ -5,8 +5,8 @@ self.addEventListener('push', event => {
   event.waitUntil(
     self.registration.showNotification('Debug: Push Received', {
       body: `Data: ${event.data ? 'Present' : 'Missing'}`,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
+      icon: self.location.origin + '/icon-192.png',
+      badge: self.location.origin + '/icon-192.png',
       tag: 'debug-push',
       requireInteraction: true
     })
@@ -25,8 +25,8 @@ self.addEventListener('push', event => {
   event.waitUntil(
     self.registration.showNotification(data.title || 'Task Reminder', {
       body: data.body || '',
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
+      icon: data.icon || self.location.origin + '/icon-192.png',
+      badge: data.badge || self.location.origin + '/icon-192.png',
       data: data,
       tag: 'task-notification',
       requireInteraction: true
@@ -57,7 +57,7 @@ self.addEventListener('install', event => {
   event.waitUntil(
     self.registration.showNotification('Debug: SW Installing', {
       body: 'Service worker is being installed',
-      icon: '/icon-192.png',
+      icon: self.location.origin + '/icon-192.png',
       tag: 'debug-install'
     })
   );
@@ -68,7 +68,7 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     self.registration.showNotification('Debug: SW Active', {
       body: 'Service worker is now active',
-      icon: '/icon-192.png',
+      icon: self.location.origin + '/icon-192.png',
       tag: 'debug-activate'
     })
   );
