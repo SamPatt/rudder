@@ -1,5 +1,6 @@
 self.addEventListener('push', event => {
   console.log('Push event received:', event);
+  console.log('Push event data:', event.data ? event.data.text() : 'No data');
   
   // Get the correct base URL for icons
   const baseUrl = self.location.origin || 'https://ruddertasks.netlify.app';
@@ -9,9 +10,13 @@ self.addEventListener('push', event => {
     self.registration.showNotification('Debug: Push Received', {
       body: `Data: ${event.data ? 'Present' : 'Missing'}`,
       icon: `${baseUrl}/icon-192.png`,
-      badge: `${baseUrl}/icon-192.png`,
+      badge: `${baseUrl}/icon-72.png`,
       tag: 'debug-push',
       requireInteraction: true
+    }).then(() => {
+      console.log('Debug notification shown successfully');
+    }).catch(error => {
+      console.error('Error showing debug notification:', error);
     })
   );
   
@@ -29,10 +34,14 @@ self.addEventListener('push', event => {
     self.registration.showNotification(data.title || 'Task Reminder', {
       body: data.body || '',
       icon: data.icon || `${baseUrl}/icon-192.png`,
-      badge: data.badge || `${baseUrl}/icon-192.png`,
+      badge: data.badge || `${baseUrl}/icon-72.png`,
       data: data,
       tag: 'task-notification',
       requireInteraction: true
+    }).then(() => {
+      console.log('Task notification shown successfully');
+    }).catch(error => {
+      console.error('Error showing task notification:', error);
     })
   );
 });
