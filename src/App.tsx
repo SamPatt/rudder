@@ -9,8 +9,6 @@ import Schedule from './components/Schedule';
 import GoalManager from './components/GoalManager';
 import Navigation from './components/Navigation';
 import Login from './components/Login';
-import PushRegisterButton from './components/PushRegisterButton';
-import PushDebug from './components/PushDebug';
 
 // Inner component that uses router hooks
 function AppContent() {
@@ -224,15 +222,14 @@ function AppContent() {
   }
 
   return (
-    <div id="app-wrapper" className="min-h-screen bg-gray-50">
-      <div className="max-w-md mx-auto bg-white min-h-screen shadow-lg">
+    <div id="app-wrapper" className="min-h-screen bg-slate-900 text-slate-200">
+      {/* Mobile Layout */}
+      <div className="md:hidden max-w-md mx-auto bg-slate-900 min-h-screen pb-16">
         <div className="p-4">
           <Routes>
             <Route path="/" element={
               <div>
                 <Dashboard tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />
-                <PushDebug />
-                <PushRegisterButton user={user} />
               </div>
             } />
             <Route path="/schedule" element={<Schedule tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />} />
@@ -242,11 +239,28 @@ function AppContent() {
         </div>
         <Navigation />
       </div>
+
+      {/* Desktop Layout */}
+      <div className="hidden md:block">
+        <Navigation />
+        <main className="w-full sm:max-w-7xl sm:mx-auto py-4 px-2 sm:py-6 sm:px-6 lg:px-8">
+          <Routes>
+            <Route path="/" element={
+              <div>
+                <Dashboard tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />
+              </div>
+            } />
+            <Route path="/schedule" element={<Schedule tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />} />
+            <Route path="/tasks" element={<TaskList tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />} />
+            <Route path="/goals" element={<GoalManager goals={goals} values={values} setGoals={setGoals} setValues={setValues} user={user} />} />
+          </Routes>
+        </main>
+      </div>
       
       {/* Swipe feedback indicator */}
       {showSwipeFeedback && (
         <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
-          <div className="bg-black bg-opacity-50 text-white px-4 py-2 rounded-lg">
+          <div className="bg-forest-500 text-white px-4 py-2 rounded-lg">
             Swipe to navigate
           </div>
         </div>
