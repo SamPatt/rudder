@@ -6,6 +6,7 @@ import GoalSelector from './GoalSelector';
 import { User } from '@supabase/supabase-js';
 import ConfirmationModal from './ConfirmationModal';
 import { getCurrentLocalDate } from '../lib/timezone';
+import PushRegisterButton from './PushRegisterButton';
 
 interface TaskListProps {
   tasks: Task[];
@@ -780,6 +781,15 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
             )}
           </div>
         )}
+      </div>
+
+      {/* Push Notifications */}
+      <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
+        <h2 className="text-lg font-semibold text-slate-200 mb-4">Push Notifications</h2>
+        <p className="text-sm text-slate-400 mb-4">
+          Enable push notifications to get reminded about your scheduled tasks.
+        </p>
+        <PushRegisterButton user={user} />
       </div>
 
       {/* Goal Selector Modal */}
