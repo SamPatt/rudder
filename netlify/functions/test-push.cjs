@@ -2,13 +2,13 @@ const { createClient } = require('@supabase/supabase-js');
 
 exports.handler = async function(event, context) {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
   const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
   const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
   
   const missingVars = [];
   if (!supabaseUrl) missingVars.push('VITE_SUPABASE_URL');
-  if (!supabaseServiceKey) missingVars.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseServiceKey) missingVars.push('SUPABASE_SERVICE_KEY');
   if (!vapidPublicKey) missingVars.push('VAPID_PUBLIC_KEY');
   if (!vapidPrivateKey) missingVars.push('VAPID_PRIVATE_KEY');
   
@@ -62,8 +62,8 @@ exports.handler = async function(event, context) {
         const payload = JSON.stringify({
           title: '🧪 Test Notification',
           body: `This is a test notification sent at ${new Date().toISOString()}`,
-          icon: 'https://your-site.netlify.app/icon-192.png',
-          badge: 'https://your-site.netlify.app/icon-192.png',
+          icon: 'https://rudder-sampatt.netlify.app/icon-192.png',
+          badge: 'https://rudder-sampatt.netlify.app/icon-192.png',
           tag: 'test-notification',
           requireInteraction: true
         });
