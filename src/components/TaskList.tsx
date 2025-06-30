@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { Task, Goal, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
+import { soundManager } from '../lib/sounds';
 import GoalSelector from './GoalSelector';
 import { User } from '@supabase/supabase-js';
 import ConfirmationModal from './ConfirmationModal';
+import { getCurrentLocalDate } from '../lib/timezone';
 
 interface TaskListProps {
   tasks: Task[];
@@ -36,7 +38,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
   // Helper function to determine the appropriate date for a task
   const getTaskDate = (isRecurring: boolean, recurType: string, customDays: number[]): string => {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = getCurrentLocalDate();
     
     if (!isRecurring) {
       // For one-time tasks, use today's date
@@ -168,7 +170,8 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
         .from('tasks')
         .update({ 
           is_done: !currentStatus,
-          completed_at: !currentStatus ? new Date().toISOString() : null
+          completed_at: !currentStatus ? new Date().toISOString() : null,
+          completion_status: !currentStatus ? 'completed' : null
         })
         .eq('id', taskId)
         .eq('user_id', user.id);
@@ -179,9 +182,15 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
         t.id === taskId ? { 
           ...t, 
           is_done: !currentStatus,
-          completed_at: !currentStatus ? new Date().toISOString() : null
+          completed_at: !currentStatus ? new Date().toISOString() : null,
+          completion_status: !currentStatus ? 'completed' : null
         } : t
       ));
+
+      // Play sound feedback for completed tasks
+      if (!currentStatus) {
+        soundManager.playSuccessSound();
+      }
     } catch (error) {
       console.error('Error updating task:', error);
     }

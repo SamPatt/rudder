@@ -24,9 +24,9 @@ export interface TaskTemplate {
   recur_type: 'daily' | 'weekdays' | 'custom';
   custom_days?: number[] | null;
   
-  // Time settings (optional)
-  start_time?: string | null;
-  end_time?: string | null;
+  // Time settings (optional) - now UTC timestamps
+  start_time?: string | null; // UTC timestamp
+  end_time?: string | null; // UTC timestamp
   
   // Relationships
   goal_id?: string | null;
@@ -49,9 +49,9 @@ export interface Task {
   // Template relationship
   template_id?: string | null;
   
-  // Scheduling fields (for one-time tasks)
-  start_time?: string | null;
-  end_time?: string | null;
+  // Scheduling fields (for one-time tasks) - now UTC timestamps
+  start_time?: string | null; // UTC timestamp
+  end_time?: string | null; // UTC timestamp
   recur?: 'once' | null; // Only 'once' remains, other recurring tasks use templates
   
   // Completion tracking
@@ -159,8 +159,8 @@ export interface Database {
           id: string;
           title: string;
           description: string | null;
-          start_time: string | null;
-          end_time: string | null;
+          start_time: string | null; // UTC timestamp
+          end_time: string | null; // UTC timestamp
           recur: 'once' | 'daily' | 'weekdays' | 'custom' | null;
           custom_days: number[] | null;
           event_date: string | null;
@@ -176,8 +176,8 @@ export interface Database {
           id?: string;
           title: string;
           description?: string | null;
-          start_time?: string | null;
-          end_time?: string | null;
+          start_time?: string | null; // UTC timestamp
+          end_time?: string | null; // UTC timestamp
           recur?: 'once' | 'daily' | 'weekdays' | 'custom' | null;
           custom_days?: number[] | null;
           event_date?: string | null;
@@ -193,8 +193,8 @@ export interface Database {
           id?: string;
           title?: string;
           description?: string | null;
-          start_time?: string | null;
-          end_time?: string | null;
+          start_time?: string | null; // UTC timestamp
+          end_time?: string | null; // UTC timestamp
           recur?: 'once' | 'daily' | 'weekdays' | 'custom' | null;
           custom_days?: number[] | null;
           event_date?: string | null;
@@ -222,6 +222,50 @@ export interface Database {
             referencedColumns: ["id"];
           }
         ];
+      };
+      task_templates: {
+        Row: {
+          id: string;
+          title: string;
+          description: string | null;
+          goal_id: string | null;
+          user_id: string;
+          recur_type: 'daily' | 'weekdays' | 'custom';
+          custom_days: number[] | null;
+          start_time: string | null; // UTC timestamp
+          end_time: string | null; // UTC timestamp
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          title: string;
+          description?: string | null;
+          goal_id?: string | null;
+          user_id: string;
+          recur_type: 'daily' | 'weekdays' | 'custom';
+          custom_days?: number[] | null;
+          start_time?: string | null; // UTC timestamp
+          end_time?: string | null; // UTC timestamp
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          title?: string;
+          description?: string | null;
+          goal_id?: string | null;
+          user_id?: string;
+          recur_type?: 'daily' | 'weekdays' | 'custom';
+          custom_days?: number[] | null;
+          start_time?: string | null; // UTC timestamp
+          end_time?: string | null; // UTC timestamp
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
       };
     };
     Views: {

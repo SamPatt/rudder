@@ -5,6 +5,8 @@ import { Task, Goal, Value } from '../types/database';
 import { User } from '@supabase/supabase-js';
 import GoalSelector from './GoalSelector';
 import TimeDropdown from './TimeDropdown';
+import { soundManager } from '../lib/sounds';
+import { localTimeToUTC, utcToLocalTime12Hour, getCurrentLocalDate } from '../lib/timezone';
 
 interface ScheduleProps {
   tasks: Task[];
@@ -41,7 +43,7 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
     end_time: '10:00',
     recur: 'daily' as 'once' | 'daily' | 'weekdays' | 'custom',
     custom_days: [] as number[],
-    event_date: new Date().toISOString().split('T')[0],
+    event_date: getCurrentLocalDate(),
     goal_id: null as string | null,
   });
   const [currentDate, setCurrentDate] = useState(() => {
@@ -171,7 +173,7 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
           end_time: '10:00',
           recur: 'daily',
           custom_days: [],
-          event_date: new Date().toISOString().split('T')[0],
+          event_date: getCurrentLocalDate(),
           goal_id: null,
         });
         setEditingTask(null);
@@ -185,8 +187,8 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
         const taskData = {
           title: formData.title,
           description: formData.description,
-          start_time: formData.start_time,
-          end_time: formData.end_time,
+          start_time: localTimeToUTC(formData.event_date, formData.start_time),
+          end_time: localTimeToUTC(formData.event_date, formData.end_time),
           recur: 'once',
           goal_id: formData.goal_id || null,
           is_done: false,
@@ -211,7 +213,7 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
             end_time: '10:00',
             recur: 'daily',
             custom_days: [],
-            event_date: new Date().toISOString().split('T')[0],
+            event_date: getCurrentLocalDate(),
             goal_id: null,
           });
           setSelectedGoalId(null);
@@ -222,8 +224,8 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
         const templateData = {
           title: formData.title,
           description: formData.description,
-          start_time: formData.start_time,
-          end_time: formData.end_time,
+          start_time: localTimeToUTC('2000-01-01', formData.start_time), // Use arbitrary date for template
+          end_time: localTimeToUTC('2000-01-01', formData.end_time), // Use arbitrary date for template
           recur_type: formData.recur,
           custom_days: formData.recur === 'custom' ? formData.custom_days : null,
           goal_id: formData.goal_id || null,
@@ -241,7 +243,7 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
         } else {
           // Generate tasks for today and the next few days
           const { error: generateError } = await supabase.rpc('generate_tasks_for_range', {
-            start_date: new Date().toISOString().split('T')[0],
+            start_date: getCurrentLocalDate(),
             end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
           });
 
@@ -269,7 +271,7 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
             end_time: '10:00',
             recur: 'daily',
             custom_days: [],
-            event_date: new Date().toISOString().split('T')[0],
+            event_date: getCurrentLocalDate(),
             goal_id: null,
           });
           setSelectedGoalId(null);
@@ -288,7 +290,7 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
       end_time: task.end_time || '10:00',
       recur: task.recur || 'daily',
       custom_days: [],
-      event_date: new Date().toISOString().split('T')[0],
+      event_date: getCurrentLocalDate(),
       goal_id: task.goal_id || null,
     });
     setSelectedGoalId(task.goal_id || null);
@@ -327,7 +329,7 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
       end_time: '10:00',
       recur: 'daily',
       custom_days: [],
-      event_date: new Date().toISOString().split('T')[0],
+      event_date: getCurrentLocalDate(),
       goal_id: null,
     });
     setEditingTask(null);
@@ -362,17 +364,13 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
       return false;
     }
     
-    // Parse start and end times
-    const [startHour, startMinute] = task.start_time!.split(':').map(Number);
-    const [endHour, endMinute] = task.end_time!.split(':').map(Number);
+    // Convert UTC times to local times for comparison
+    const startTimeLocal = task.start_time ? new Date(task.start_time) : null;
+    const endTimeLocal = task.end_time ? new Date(task.end_time) : null;
     
-    const startTime = new Date(today);
-    startTime.setHours(startHour, startMinute, 0, 0);
+    if (!startTimeLocal || !endTimeLocal) return false;
     
-    const endTime = new Date(today);
-    endTime.setHours(endHour, endMinute, 0, 0);
-    
-    return now >= startTime && now < endTime;
+    return now >= startTimeLocal && now < endTimeLocal;
   };
 
   const updateTaskStatus = async (taskId: string, status: 'completed' | 'skipped' | 'failed') => {
@@ -464,6 +462,11 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
           } : t
         ));
       }
+
+      // Play sound feedback for completed tasks
+      if (status === 'completed') {
+        soundManager.playCompletionSound();
+      }
     } catch (error) {
       console.error('Error updating task status:', error);
     }
@@ -486,17 +489,14 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
 
   const formatTime = (t: string) => {
     if (!t) return '';
-    let [hour, minute] = t.split(':').map(Number);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    hour = hour % 12;
-    if (hour === 0) hour = 12;
-    return `${hour}:${minute.toString().padStart(2, '0')} ${ampm}`;
+    // Convert UTC time to local time for display
+    return utcToLocalTime12Hour(t);
   };
 
   function groupAndAssignColumns(scheduledTasks: Task[]): { [key: string]: Task & { _col: number; _colCount: number } } {
-    function toMinutes(t: string): number {
-      const [hours, minutes] = t.split(':').map(Number);
-      return hours * 60 + minutes;
+    function toMinutes(utcTime: string): number {
+      const date = new Date(utcTime);
+      return date.getHours() * 60 + date.getMinutes();
     }
 
     function overlaps(a: Task, b: Task): boolean {
@@ -572,12 +572,11 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
       return false;
     }
     
-    // Check if past end time
-    const [endHour, endMinute] = task.end_time!.split(':').map(Number);
-    const endTime = new Date(today);
-    endTime.setHours(endHour, endMinute, 0, 0);
+    // Check if past end time (convert UTC to local for comparison)
+    const endTimeLocal = task.end_time ? new Date(task.end_time) : null;
+    if (!endTimeLocal) return false;
     
-    return now > endTime;
+    return now > endTimeLocal;
   }
 
   const navigateDate = (direction: 'prev' | 'next') => {
@@ -615,8 +614,13 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
     if (h >= 6) return true;
     // Check if this hour has any tasks
     return getScheduledTasks().some(task => {
-      const [startHour] = task.start_time!.split(':').map(Number);
-      const [endHour] = task.end_time!.split(':').map(Number);
+      if (!task.start_time || !task.end_time) return false;
+      
+      const startTimeLocal = new Date(task.start_time);
+      const endTimeLocal = new Date(task.end_time);
+      const startHour = startTimeLocal.getHours();
+      const endHour = endTimeLocal.getHours();
+      
       return (startHour <= h && endHour > h) || (startHour === h) || (endHour > h && startHour < h);
     });
   });
@@ -889,8 +893,18 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
             const blocksWithCols = groupAndAssignColumns(visibleBlocks);
             return Object.values(blocksWithCols).map((task) => {
               const isCurrentTime = isTaskCurrent(task, currentDate);
-              const [startHour, startMinute] = task.start_time!.split(':').map(Number);
-              const [endHour, endMinute] = task.end_time!.split(':').map(Number);
+              
+              // Convert UTC times to local times for positioning
+              const startTimeLocal = task.start_time ? new Date(task.start_time) : null;
+              const endTimeLocal = task.end_time ? new Date(task.end_time) : null;
+              
+              if (!startTimeLocal || !endTimeLocal) return null;
+              
+              const startHour = startTimeLocal.getHours();
+              const startMinute = startTimeLocal.getMinutes();
+              const endHour = endTimeLocal.getHours();
+              const endMinute = endTimeLocal.getMinutes();
+              
               if (hourToIndex[startHour] === undefined) return null;
               const top = hourToIndex[startHour] * 60 + startMinute;
               const endIdx = hourToIndex[endHour] !== undefined ? hourToIndex[endHour] : visibleHours.length;
@@ -972,8 +986,13 @@ export default function Schedule({ tasks, goals, values, setTasks, user }: Sched
             // Check if there are any time blocks in this hour
             const hasTimeBlocksInHour = getScheduledTasks()
               .some(task => {
-                const [startHour] = task.start_time!.split(':').map(Number);
-                const [endHour] = task.end_time!.split(':').map(Number);
+                if (!task.start_time || !task.end_time) return false;
+                
+                const startTimeLocal = new Date(task.start_time);
+                const endTimeLocal = new Date(task.end_time);
+                const startHour = startTimeLocal.getHours();
+                const endHour = endTimeLocal.getHours();
+                
                 return (startHour <= h && endHour > h) || 
                        (startHour === h) || 
                        (endHour > h && startHour < h);

@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { Task, Goal, Value } from '../types/database';
 import { supabase } from '../lib/supabase';
+import { soundManager } from '../lib/sounds';
 import GoalSelector from './GoalSelector';
 import { User } from '@supabase/supabase-js';
+import { getCurrentLocalDate, utcToLocalTime12Hour } from '../lib/timezone';
 
 interface DashboardProps {
   tasks: Task[];
@@ -24,8 +26,7 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
   // Get tasks for the event cards (past due, current, upcoming)
   const getEventTasks = () => {
     // Use timezone-safe date calculation (local midnight)
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().split('T')[0];
+    const today = getCurrentLocalDate();
     
     // Get all tasks scheduled for today that have time data (both recurring and one-time)
     const todaysTasks = tasks.filter(task => 
@@ -38,6 +39,7 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
       return { pastDue: null, current: null, upcoming: null };
     }
     
+    const now = new Date();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
     const currentMinutes = currentHour * 60 + currentMinute;
@@ -46,19 +48,21 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
     let current = null;
     let upcoming = null;
     
-    // Sort tasks by start time
+    // Sort tasks by start time (convert UTC to local for comparison)
     const sortedTasks = todaysTasks.sort((a, b) => {
-      const aStart = a.start_time!.split(':').map(Number);
-      const bStart = b.start_time!.split(':').map(Number);
-      return (aStart[0] * 60 + aStart[1]) - (bStart[0] * 60 + bStart[1]);
+      const aStartLocal = new Date(a.start_time!);
+      const bStartLocal = new Date(b.start_time!);
+      const aStartMinutes = aStartLocal.getHours() * 60 + aStartLocal.getMinutes();
+      const bStartMinutes = bStartLocal.getHours() * 60 + bStartLocal.getMinutes();
+      return aStartMinutes - bStartMinutes;
     });
     
     // Find current task (task that is happening right now) - always show regardless of completion
     for (const task of sortedTasks) {
-      const [startHour, startMinute] = task.start_time!.split(':').map(Number);
-      const [endHour, endMinute] = task.end_time!.split(':').map(Number);
-      const taskStartMinutes = startHour * 60 + startMinute;
-      const taskEndMinutes = endHour * 60 + endMinute;
+      const startTimeLocal = new Date(task.start_time!);
+      const endTimeLocal = new Date(task.end_time!);
+      const taskStartMinutes = startTimeLocal.getHours() * 60 + startTimeLocal.getMinutes();
+      const taskEndMinutes = endTimeLocal.getHours() * 60 + endTimeLocal.getMinutes();
       
       if (currentMinutes >= taskStartMinutes && currentMinutes < taskEndMinutes) {
         current = task;
@@ -69,8 +73,8 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
     // Find past due task (most recent task that has ended and is not done and not failed)
     for (let i = sortedTasks.length - 1; i >= 0; i--) {
       const task = sortedTasks[i];
-      const [endHour, endMinute] = task.end_time!.split(':').map(Number);
-      const taskEndMinutes = endHour * 60 + endMinute;
+      const endTimeLocal = new Date(task.end_time!);
+      const taskEndMinutes = endTimeLocal.getHours() * 60 + endTimeLocal.getMinutes();
       
       // Only show as past due if not done, not failed, and not the current task
       if (currentMinutes > taskEndMinutes && 
@@ -84,8 +88,8 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
     
     // Find upcoming task (next task that hasn't started yet and is not done)
     for (const task of sortedTasks) {
-      const [startHour, startMinute] = task.start_time!.split(':').map(Number);
-      const taskStartMinutes = startHour * 60 + startMinute;
+      const startTimeLocal = new Date(task.start_time!);
+      const taskStartMinutes = startTimeLocal.getHours() * 60 + startTimeLocal.getMinutes();
       
       if (currentMinutes < taskStartMinutes && !task.is_done && task !== current) {
         upcoming = task;
@@ -106,7 +110,7 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
     // Use timezone-safe date calculation (local midnight)
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = getCurrentLocalDate();
     
     if (!isRecurring) {
       return todayStr;
@@ -198,22 +202,32 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
           user_id: user.id,
         };
 
-        const { data: task, error: taskError } = await supabase
+        const { error: insertError } = await supabase
           .from('tasks')
           .insert(insertPayload)
           .select('*, goal:goals(*)')
           .single();
 
-        if (taskError) throw taskError;
+        if (insertError) throw insertError;
 
-        setTasks([task, ...tasks]);
+        // Refresh tasks
+        const { data: newTasks, error: tasksError } = await supabase
+          .from('tasks')
+          .select('*, goal:goals(*), template:task_templates(*)')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (tasksError) throw tasksError;
+        setTasks(newTasks || []);
       }
 
+      // Reset form
       setNewTaskTitle('');
       setIsRecurring(false);
       setRecurType('daily');
       setCustomDays([]);
       setShowQuickAdd(false);
+      setShowGoalSelector(false);
     } catch (error) {
       console.error('Error adding task:', error);
     }
@@ -221,59 +235,62 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
 
   const toggleTask = async (taskId: string, currentStatus: boolean) => {
     try {
-      const task = tasks.find(t => t.id === taskId);
-      if (!task) return;
-
-      // Update the task directly (whether it's a template instance or one-time task)
       const { error } = await supabase
         .from('tasks')
         .update({ 
           is_done: !currentStatus,
-          completed_at: !currentStatus ? new Date().toISOString() : null
+          completed_at: !currentStatus ? new Date().toISOString() : null,
+          completion_status: !currentStatus ? 'completed' : null
         })
-        .eq('id', taskId)
-        .eq('user_id', user.id);
+        .eq('id', taskId);
 
       if (error) throw error;
 
-      setTasks(tasks.map(t => 
-        t.id === taskId ? { 
-          ...t, 
-          is_done: !currentStatus,
-          completed_at: !currentStatus ? new Date().toISOString() : null
-        } : t
+      // Play success sound
+      soundManager.playSuccessSound();
+
+      // Update local state
+      setTasks(tasks.map(task => 
+        task.id === taskId 
+          ? { 
+              ...task, 
+              is_done: !currentStatus,
+              completed_at: !currentStatus ? new Date().toISOString() : null,
+              completion_status: !currentStatus ? 'completed' : null
+            }
+          : task
       ));
     } catch (error) {
-      console.error('Error updating task:', error);
+      console.error('Error toggling task:', error);
     }
   };
 
   const updateTaskStatus = async (taskId: string, status: 'completed' | 'skipped' | 'failed') => {
     try {
-      const task = tasks.find(t => t.id === taskId);
-      
-      if (!task) return;
-
-      // Update the task directly
       const { error } = await supabase
         .from('tasks')
         .update({ 
-          completion_status: status,
           is_done: status === 'completed',
-          completed_at: status === 'completed' ? new Date().toISOString() : null
+          completed_at: status === 'completed' ? new Date().toISOString() : null,
+          completion_status: status
         })
-        .eq('id', taskId)
-        .eq('user_id', user.id);
+        .eq('id', taskId);
 
       if (error) throw error;
 
-      setTasks(tasks.map(t => 
-        t.id === taskId ? { 
-          ...t, 
-          completion_status: status,
-          is_done: status === 'completed',
-          completed_at: status === 'completed' ? new Date().toISOString() : null
-        } : t
+      // Play success sound
+      soundManager.playSuccessSound();
+
+      // Update local state
+      setTasks(tasks.map(task => 
+        task.id === taskId 
+          ? { 
+              ...task, 
+              is_done: status === 'completed',
+              completed_at: status === 'completed' ? new Date().toISOString() : null,
+              completion_status: status
+            }
+          : task
       ));
     } catch (error) {
       console.error('Error updating task status:', error);
@@ -282,9 +299,9 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
 
   const handleDayToggle = (dayValue: number) => {
     setCustomDays(prev => 
-      prev.includes(dayValue)
+      prev.includes(dayValue) 
         ? prev.filter(d => d !== dayValue)
-        : [...prev, dayValue].sort()
+        : [...prev, dayValue]
     );
   };
 
@@ -300,58 +317,33 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
 
   // Get frequent tasks (recurring tasks scheduled for today)
   const getFrequentTasks = () => {
-    const today = new Date().toISOString().split('T')[0];
+    // Get tasks that appear frequently (have templates)
+    const templateIds = new Set(tasks.filter(t => t.template_id).map(t => t.template_id));
+    const frequentTasks = tasks.filter(task => 
+      templateIds.has(task.template_id) && 
+      !task.is_done && 
+      task.completion_status !== 'failed'
+    );
     
-    const filteredTasks = tasks.filter(task => {
-      // Must be a task with a template (recurring task)
-      if (!task.template_id) {
-        return false;
+    // Group by template and get the most recent instance of each
+    const grouped = new Map();
+    frequentTasks.forEach(task => {
+      if (!grouped.has(task.template_id)) {
+        grouped.set(task.template_id, task);
       }
-      
-      // Check if it's scheduled for today
-      return task.date === today;
     });
-
-    // Sort completed tasks to the top, but only if completed today
-    return filteredTasks.sort((a, b) => {
-      const aCompletedToday = a.completed_at && a.completed_at.startsWith(today);
-      const bCompletedToday = b.completed_at && b.completed_at.startsWith(today);
-      
-      if (aCompletedToday && !bCompletedToday) return -1;
-      if (!aCompletedToday && bCompletedToday) return 1;
-      return 0;
-    });
+    
+    return Array.from(grouped.values()).slice(0, 5);
   };
 
   // Get to-do list (one-time tasks)
   const getTodoListTasks = () => {
-    const today = new Date().toISOString().split('T')[0];
-    
-    const filteredTasks = tasks.filter(task => {
-      // Must be a one-time task (no template_id)
-      if (task.template_id) {
-        return false;
-      }
-      
-      // Show incomplete tasks
-      if (!task.is_done) {
-        return true;
-      }
-      
-      // Show completed tasks only if they were scheduled for today AND completed today
-      if (task.completed_at && task.completed_at.startsWith(today) && task.date === today) {
-        return true;
-      }
-      
-      return false;
-    });
-
-    // Sort completed tasks to the top
-    return filteredTasks.sort((a, b) => {
-      if (a.is_done && !b.is_done) return -1;
-      if (!a.is_done && b.is_done) return 1;
-      return 0;
-    });
+    // Get unscheduled tasks (no start_time) that are not done
+    return tasks.filter(task => 
+      !task.start_time && 
+      !task.is_done && 
+      task.completion_status !== 'failed'
+    ).slice(0, 10);
   };
 
   // Focus the input when expanding
@@ -366,10 +358,8 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
   // Format time in 12-hour format
   const formatTime = (time: string) => {
     if (!time) return '';
-    const [hours, minutes] = time.split(':').map(Number);
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    const displayHours = hours % 12 || 12;
-    return `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+    // Convert UTC time to local time for display
+    return utcToLocalTime12Hour(time);
   };
 
   // Get status text for current task

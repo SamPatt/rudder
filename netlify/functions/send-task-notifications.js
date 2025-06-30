@@ -39,34 +39,29 @@ exports.handler = async function(event, context) {
   const subscriptions = await subRes.json();
   console.log('Subscriptions fetch body:', subscriptions);
 
-  // 2. Query Supabase for all tasks in the next hour (using local timezone)
-  const now = new Date();
-  
-  // Convert to local timezone (America/Detroit based on your logs)
-  const localDate = new Date(now.toLocaleString("en-US", {timeZone: "America/Detroit"}));
-  const nowDate = localDate.toISOString().slice(0, 10); // YYYY-MM-DD
-  
-  // Get local time in HH:MM format
-  const nowTime = localDate.toLocaleTimeString("en-US", {
-    timeZone: "America/Detroit",
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-  
-  // Calculate 1 hour from now in local time
-  const futureTime = new Date(localDate.getTime() + 60 * 60 * 1000);
-  const futureTimeStr = futureTime.toLocaleTimeString("en-US", {
-    timeZone: "America/Detroit", 
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  if (!Array.isArray(subscriptions) || subscriptions.length === 0) {
+    console.log('No subscriptions found');
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ sent: 0, tasks: 0, subscriptions: 0, message: 'No subscriptions found' })
+    };
+  }
 
-  console.log(`Looking for tasks between ${nowTime} and ${futureTimeStr} on ${nowDate} (local time)`);
+  // 2. Query Supabase for all tasks in the next hour (using UTC)
+  const now = new Date();
+  const nowUTC = now.toISOString();
+  const nowDate = now.toISOString().split('T')[0]; // YYYY-MM-DD in UTC
+  
+  // Calculate 1 hour from now in UTC
+  const futureTime = new Date(now.getTime() + 60 * 60 * 1000);
+  const futureTimeUTC = futureTime.toISOString();
+
+  console.log(`Function triggered at UTC time: ${nowUTC}`);
+  console.log(`Looking for tasks between ${nowUTC} and ${futureTimeUTC} on ${nowDate} (UTC)`);
+  console.log(`Query URL will be: ${supabaseUrl}/rest/v1/tasks?date=eq.${nowDate}&start_time=gte.${nowUTC}&start_time=lte.${futureTimeUTC}&completed_at=is.null&order=start_time.asc`);
 
   // Query for all tasks in the next hour (completed_at is null for incomplete tasks)
-  const taskRes = await fetch(`${supabaseUrl}/rest/v1/tasks?date=eq.${nowDate}&start_time=gte.${nowTime}&start_time=lte.${futureTimeStr}&completed_at=is.null&order=start_time.asc`, {
+  const taskRes = await fetch(`${supabaseUrl}/rest/v1/tasks?date=eq.${nowDate}&start_time=gte.${nowUTC}&start_time=lte.${futureTimeUTC}&completed_at=is.null&order=start_time.asc`, {
     headers: {
       apikey: supabaseKey,
       Authorization: `Bearer ${supabaseKey}`,
@@ -78,7 +73,7 @@ exports.handler = async function(event, context) {
 
   // 3. Send a comprehensive notification for all tasks
   let sent = 0;
-  if (Array.isArray(tasks) && Array.isArray(subscriptions) && tasks.length > 0) {
+  if (Array.isArray(tasks) && tasks.length > 0) {
     // Create a comprehensive message
     const taskList = tasks.map(task => `• ${task.title} at ${task.start_time}`).join('\n');
     const taskCount = tasks.length;
@@ -102,11 +97,17 @@ exports.handler = async function(event, context) {
   } else if (Array.isArray(tasks) && tasks.length === 0) {
     console.log('No tasks found in the next hour');
   } else {
-    console.error('Tasks or subscriptions are not arrays:', { tasks, subscriptions });
+    console.error('Tasks is not an array:', tasks);
   }
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ sent, tasks: Array.isArray(tasks) ? tasks.length : 'n/a', subscriptions: Array.isArray(subscriptions) ? subscriptions.length : 'n/a' })
+    body: JSON.stringify({ 
+      sent, 
+      tasks: Array.isArray(tasks) ? tasks.length : 'n/a', 
+      subscriptions: Array.isArray(subscriptions) ? subscriptions.length : 'n/a',
+      queryTime: `${nowUTC}-${futureTimeUTC}`,
+      queryDate: nowDate
+    })
   };
 }; 

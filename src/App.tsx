@@ -9,6 +9,7 @@ import Schedule from './components/Schedule';
 import GoalManager from './components/GoalManager';
 import Navigation from './components/Navigation';
 import Login from './components/Login';
+import SuccessAnimation from './components/SuccessAnimation';
 
 // Inner component that uses router hooks
 function AppContent() {
@@ -21,6 +22,7 @@ function AppContent() {
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
   const [showSwipeFeedback, setShowSwipeFeedback] = useState(false);
+  const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -34,6 +36,19 @@ function AppContent() {
 
   // Minimum swipe distance (in px)
   const minSwipeDistance = 50;
+
+  // Global function to trigger success animation
+  const triggerSuccessAnimation = () => {
+    setShowSuccessAnimation(true);
+  };
+
+  // Make the trigger function globally available
+  useEffect(() => {
+    (window as any).triggerSuccessAnimation = triggerSuccessAnimation;
+    return () => {
+      delete (window as any).triggerSuccessAnimation;
+    };
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -265,6 +280,12 @@ function AppContent() {
           </div>
         </div>
       )}
+
+      {/* Success Animation */}
+      <SuccessAnimation 
+        isActive={showSuccessAnimation} 
+        onAnimationComplete={() => setShowSuccessAnimation(false)} 
+      />
     </div>
   );
 }
