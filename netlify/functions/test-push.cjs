@@ -62,13 +62,10 @@ exports.handler = async function(event, context) {
         const payload = JSON.stringify({
           title: '🧪 Test Notification',
           body: `This is a test notification sent at ${new Date().toISOString()}`,
-          icon: 'https://ruddertasks.netlify.app/icon-96.png',
-          badge: 'https://ruddertasks.netlify.app/icon-72.png',
           tag: 'test-notification',
           requireInteraction: true,
           silent: false,
-          vibrate: [200, 100, 200],
-          image: 'https://ruddertasks.netlify.app/icon-192.png'
+          vibrate: [200, 100, 200]
         });
 
         await webpush.sendNotification(subscription.subscription, payload);
