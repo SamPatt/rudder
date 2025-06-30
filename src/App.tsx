@@ -12,8 +12,6 @@ import Login from './components/Login';
 import PushRegisterButton from './components/PushRegisterButton';
 import PushDebug from './components/PushDebug';
 
-const ALLOWED_EMAIL = import.meta.env.VITE_ALLOWED_EMAIL;
-
 // Inner component that uses router hooks
 function AppContent() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -30,7 +28,7 @@ function AppContent() {
   const location = useLocation();
 
   const navItems = [
-    { path: '/', label: 'Dashboard', icon: '��' },
+    { path: '/', label: 'Dashboard', icon: '🏠' },
     { path: '/schedule', label: 'Schedule', icon: '📅' },
     { path: '/tasks', label: 'Tasks', icon: '📝' },
     { path: '/goals', label: 'Goals', icon: '🎯' }
@@ -199,91 +197,60 @@ function AppContent() {
   // Show loading screen while checking authentication
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-forest-500 mx-auto"></div>
-          <p className="mt-4 text-slate-400">Loading Rudder...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
         </div>
       </div>
     );
   }
 
-  if (!user) return <Login />;
-  if (user.email !== ALLOWED_EMAIL) {
-    supabase.auth.signOut();
-    return <div className="text-center mt-20 text-red-500">Not authorized</div>;
+  // Show login screen if not authenticated
+  if (!user) {
+    return <Login />;
   }
 
-  console.log('User authorized, showing Dashboard');
+  // Show loading screen while fetching data
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-forest-500 mx-auto"></div>
-          <p className="mt-4 text-slate-400">Loading Rudder...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading your data...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div id="app-wrapper" className="min-h-screen bg-slate-900 text-slate-200">
-      <Navigation />
-
-      <main className="w-full sm:max-w-7xl sm:mx-auto py-4 px-2 sm:py-6 sm:px-6 lg:px-8">
-        {/* Swipe Feedback Indicator */}
-        {showSwipeFeedback && (
-          <div className="md:hidden fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-forest-500 text-white px-3 py-1 rounded-md text-sm animate-pulse">
-            Swiped!
-          </div>
-        )}
-
-        <Routes>
-          <Route path="/" element={
-            <Dashboard 
-              tasks={tasks} 
-              goals={goals} 
-              values={values}
-              setTasks={setTasks}
-              user={user}
-            />
-          } />
-          <Route path="/tasks" element={
-            <TaskList 
-              tasks={tasks} 
-              goals={goals} 
-              values={values}
-              setTasks={setTasks}
-              user={user}
-            />
-          } />
-          <Route path="/schedule" element={
-            <Schedule 
-              tasks={tasks} 
-              goals={goals} 
-              values={values}
-              setTasks={setTasks}
-              user={user}
-            />
-          } />
-          <Route path="/goals" element={
-            <GoalManager 
-              goals={goals} 
-              values={values}
-              setGoals={setGoals}
-              setValues={setValues}
-              user={user}
-            />
-          } />
-        </Routes>
-      </main>
-
-      <PushRegisterButton user={user} />
-      
-      {/* Temporary debug component - remove after troubleshooting */}
-      <div className="fixed bottom-20 left-4 right-4 z-40">
-        <PushDebug />
+    <div id="app-wrapper" className="min-h-screen bg-gray-50">
+      <div className="max-w-md mx-auto bg-white min-h-screen shadow-lg">
+        <div className="p-4">
+          <Routes>
+            <Route path="/" element={
+              <div>
+                <Dashboard tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />
+                <PushDebug />
+                <PushRegisterButton user={user} />
+              </div>
+            } />
+            <Route path="/schedule" element={<Schedule tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />} />
+            <Route path="/tasks" element={<TaskList tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />} />
+            <Route path="/goals" element={<GoalManager goals={goals} values={values} setGoals={setGoals} setValues={setValues} user={user} />} />
+          </Routes>
+        </div>
+        <Navigation />
       </div>
+      
+      {/* Swipe feedback indicator */}
+      {showSwipeFeedback && (
+        <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
+          <div className="bg-black bg-opacity-50 text-white px-4 py-2 rounded-lg">
+            Swipe to navigate
+          </div>
+        </div>
+      )}
     </div>
   );
 }
