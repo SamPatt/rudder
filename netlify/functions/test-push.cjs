@@ -62,8 +62,8 @@ exports.handler = async function(event, context) {
         const payload = JSON.stringify({
           title: '🧪 Test Notification',
           body: `This is a test notification sent at ${new Date().toISOString()}`,
-          icon: 'https://rudder-sampatt.netlify.app/icon-192.png',
-          badge: 'https://rudder-sampatt.netlify.app/icon-192.png',
+          icon: 'https://ruddertasks.netlify.app/icon-192.png',
+          badge: 'https://ruddertasks.netlify.app/icon-192.png',
           tag: 'test-notification',
           requireInteraction: true
         });

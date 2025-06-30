@@ -2,7 +2,7 @@ self.addEventListener('push', event => {
   console.log('Push event received:', event);
   
   // Get the correct base URL for icons
-  const baseUrl = self.location.origin || 'https://rudder-sampatt.netlify.app';
+  const baseUrl = self.location.origin || 'https://ruddertasks.netlify.app';
   
   // Show a debug notification first
   event.waitUntil(
@@ -57,7 +57,7 @@ self.addEventListener('notificationclick', event => {
 // Add service worker lifecycle debugging
 self.addEventListener('install', event => {
   console.log('Service Worker installing...');
-  const baseUrl = self.location.origin || 'https://rudder-sampatt.netlify.app';
+  const baseUrl = self.location.origin || 'https://ruddertasks.netlify.app';
   event.waitUntil(
     self.registration.showNotification('Debug: SW Installing', {
       body: 'Service worker is being installed',
@@ -69,7 +69,7 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   console.log('Service Worker activating...');
-  const baseUrl = self.location.origin || 'https://rudder-sampatt.netlify.app';
+  const baseUrl = self.location.origin || 'https://ruddertasks.netlify.app';
   event.waitUntil(
     self.registration.showNotification('Debug: SW Active', {
       body: 'Service worker is now active',
