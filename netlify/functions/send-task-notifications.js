@@ -98,12 +98,13 @@ exports.handler = async function(event, context) {
     const payload = JSON.stringify({
       title: `You have ${taskCount} task${taskCount > 1 ? 's' : ''} in the next hour`,
       body: taskList,
-      icon: 'https://ruddertasks.netlify.app/icon-72.png',
+      icon: 'https://ruddertasks.netlify.app/icon-96.png',
       badge: 'https://ruddertasks.netlify.app/icon-72.png',
       tag: 'task-reminder',
       requireInteraction: true,
       silent: false,
-      vibrate: [200, 100, 200]
+      vibrate: [200, 100, 200],
+      image: 'https://ruddertasks.netlify.app/icon-192.png'
     });
     
     for (const sub of subscriptions) {
