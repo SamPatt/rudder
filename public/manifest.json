@@ -10,6 +10,7 @@
   "scope": "/",
   "lang": "en",
   "categories": ["productivity", "lifestyle"],
+  "badge": "/icon-72.png",
   "icons": [
     {
       "src": "icon-72.png",
