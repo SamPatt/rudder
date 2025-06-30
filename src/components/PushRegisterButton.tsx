@@ -31,6 +31,31 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
     }
   };
 
+  const checkExistingSubscription = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('push_subscriptions')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+        console.error('Error checking subscription:', error);
+        setStatus(`Error checking subscription: ${error.message}`);
+        return;
+      }
+
+      if (data) {
+        setStatus(`✅ Subscription found! Endpoint: ${data.subscription.endpoint.substring(0, 50)}...`);
+      } else {
+        setStatus('No existing subscription found');
+      }
+    } catch (error) {
+      console.error('Error checking subscription:', error);
+      setStatus('Error checking subscription');
+    }
+  };
+
   const registerForPushNotifications = async () => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       setStatus('Push notifications not supported in this browser');
@@ -65,19 +90,27 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
       });
 
       // Save subscription to database
-      const { error } = await supabase
+      console.log('Saving subscription for user:', user.id);
+      console.log('Subscription data:', subscription.toJSON());
+      
+      const { data, error } = await supabase
         .from('push_subscriptions')
         .upsert({
           user_id: user.id,
           subscription: subscription.toJSON()
-        });
+        }, {
+          onConflict: 'user_id'
+        })
+        .select();
 
       if (error) {
         console.error('Error saving subscription:', error);
-        setStatus('Error saving subscription');
+        console.error('Error details:', error.message, error.details, error.hint);
+        setStatus(`Error saving subscription: ${error.message}`);
         return;
       }
 
+      console.log('Subscription saved successfully:', data);
       setStatus('✅ Push notifications registered successfully!');
       
       // Test notification
@@ -121,6 +154,13 @@ export default function PushRegisterButton({ user }: PushRegisterButtonProps) {
         className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
       >
         Check Notification Status
+      </button>
+      
+      <button
+        onClick={checkExistingSubscription}
+        className="w-full px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded transition-colors"
+      >
+        Check Existing Subscription
       </button>
       
       <button
