@@ -39,12 +39,19 @@ exports.handler = async function(event, context) {
   const subscriptions = await subRes.json();
   console.log('Subscriptions fetch body:', subscriptions);
 
-  // 2. Query Supabase for tasks starting now
+  // 2. Query Supabase for tasks due soon (within next 15 minutes)
   const now = new Date();
   const nowDate = now.toISOString().slice(0, 10); // YYYY-MM-DD
   const nowTime = now.toISOString().slice(11, 16); // HH:MM
+  
+  // Calculate 15 minutes from now
+  const futureTime = new Date(now.getTime() + 15 * 60 * 1000);
+  const futureTimeStr = futureTime.toISOString().slice(11, 16); // HH:MM
 
-  const taskRes = await fetch(`${supabaseUrl}/rest/v1/tasks?date=eq.${nowDate}&start_time=eq.${nowTime}`, {
+  console.log(`Looking for tasks between ${nowTime} and ${futureTimeStr} on ${nowDate}`);
+
+  // Query for tasks due within the next 15 minutes (completed_at is null for incomplete tasks)
+  const taskRes = await fetch(`${supabaseUrl}/rest/v1/tasks?date=eq.${nowDate}&start_time=gte.${nowTime}&start_time=lte.${futureTimeStr}&completed_at=is.null`, {
     headers: {
       apikey: supabaseKey,
       Authorization: `Bearer ${supabaseKey}`,
@@ -59,15 +66,17 @@ exports.handler = async function(event, context) {
   if (Array.isArray(tasks) && Array.isArray(subscriptions)) {
     for (const task of tasks) {
       const payload = JSON.stringify({
-        title: `Task Started: ${task.title}`,
-        body: `Your task "${task.title}" is scheduled for now.`,
+        title: `Task Due Soon: ${task.title}`,
+        body: `Your task "${task.title}" is due at ${task.start_time}.`,
       });
       for (const sub of subscriptions) {
         try {
+          console.log(`Sending notification for task "${task.title}" to subscription ${sub.id}`);
           await webpush.sendNotification(sub.subscription, payload);
           sent++;
+          console.log(`Successfully sent notification for task "${task.title}"`);
         } catch (err) {
-          console.error('Push error:', err);
+          console.error('Push error for task', task.title, ':', err);
         }
       }
     }
