@@ -19,6 +19,7 @@ export default defineConfig({
         orientation: 'portrait-primary',
         scope: '/',
         start_url: '/',
+        notification_icon: '/icon-192.png',
         icons: [
           {
             src: 'icon-72.png',

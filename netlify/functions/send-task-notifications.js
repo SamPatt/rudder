@@ -7,6 +7,22 @@ webpush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY
 );
 
+// Helper function to get current date in user's timezone (assuming Detroit/EST)
+function getCurrentLocalDate() {
+  // Assume user is in Detroit timezone (EST/EDT)
+  const now = new Date();
+  const detroitTime = new Date(now.toLocaleString("en-US", {timeZone: "America/Detroit"}));
+  return detroitTime.toISOString().split('T')[0];
+}
+
+// Helper function to convert local time to UTC
+function localTimeToUTC(date, time) {
+  const localDateTime = `${date}T${time}`;
+  const localDate = new Date(localDateTime);
+  const utcDate = new Date(localDate.toLocaleString("en-US", {timeZone: "America/Detroit"}));
+  return utcDate.toISOString();
+}
+
 exports.handler = async function(event, context) {
   console.log('send-task-notifications function triggered');
   console.log('Event:', event);
@@ -47,10 +63,10 @@ exports.handler = async function(event, context) {
     };
   }
 
-  // 2. Query Supabase for all tasks in the next hour (using UTC)
+  // 2. Query Supabase for all tasks in the next hour (using proper timezone handling)
   const now = new Date();
   const nowUTC = now.toISOString();
-  const nowDate = now.toISOString().split('T')[0]; // YYYY-MM-DD in UTC
+  const localDate = getCurrentLocalDate(); // Get current date in user's timezone
   
   // Add a 5-minute buffer to catch tasks that started just before the function triggered
   const bufferTime = new Date(now.getTime() - 5 * 60 * 1000); // 5 minutes ago
@@ -61,12 +77,13 @@ exports.handler = async function(event, context) {
   const futureTimeUTC = futureTime.toISOString();
 
   console.log(`Function triggered at UTC time: ${nowUTC}`);
-  console.log(`Looking for tasks between ${bufferTimeUTC} (5min ago) and ${futureTimeUTC} (1hr from now) on ${nowDate} (UTC)`);
-  console.log(`Query URL will be: ${supabaseUrl}/rest/v1/tasks?date=eq.${nowDate}&start_time=gte.${bufferTimeUTC}&start_time=lt.${futureTimeUTC}&completed_at=is.null&order=start_time.asc`);
+  console.log(`Current local date: ${localDate}`);
+  console.log(`Looking for tasks between ${bufferTimeUTC} (5min ago) and ${futureTimeUTC} (1hr from now) on ${localDate} (local)`);
 
   // Query for all tasks in the next hour (completed_at is null for incomplete tasks)
   // Use buffer to catch tasks that started just before function triggered
-  const taskRes = await fetch(`${supabaseUrl}/rest/v1/tasks?date=eq.${nowDate}&start_time=gte.${bufferTimeUTC}&start_time=lt.${futureTimeUTC}&completed_at=is.null&order=start_time.asc`, {
+  // Query by both date (in user's timezone) and start_time range
+  const taskRes = await fetch(`${supabaseUrl}/rest/v1/tasks?date=eq.${localDate}&start_time=gte.${bufferTimeUTC}&start_time=lt.${futureTimeUTC}&completed_at=is.null&order=start_time.asc`, {
     headers: {
       apikey: supabaseKey,
       Authorization: `Bearer ${supabaseKey}`,
@@ -130,7 +147,7 @@ exports.handler = async function(event, context) {
       tasks: Array.isArray(tasks) ? tasks.length : 'n/a', 
       subscriptions: Array.isArray(subscriptions) ? subscriptions.length : 'n/a',
       queryTime: `${bufferTimeUTC}-${futureTimeUTC}`,
-      queryDate: nowDate
+      queryDate: localDate
     })
   };
 }; 

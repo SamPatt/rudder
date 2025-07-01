@@ -2,15 +2,15 @@
 // Workbox precache will be injected by the build process
 self.__WB_MANIFEST;
 
+// Use absolute URLs for icons to ensure they load properly
+const ICON_URL = 'https://ruddertasks.netlify.app/icon-192.png';
+const BADGE_URL = 'https://ruddertasks.netlify.app/icon-72.png';
+
 self.addEventListener('push', event => {
   console.log('🔔 Push event received:', event);
   console.log('📦 Push event data:', event.data ? event.data.text() : 'No data');
   console.log('📍 Service worker origin:', self.location.origin);
   console.log('🆔 Service worker scope:', self.registration.scope);
-  
-  // Get the correct base URL for icons
-  const baseUrl = self.location.origin || 'https://ruddertasks.netlify.app';
-  console.log('🏠 Base URL for icons:', baseUrl);
   
   let data = {};
   try {
@@ -21,12 +21,12 @@ self.addEventListener('push', event => {
     data = { title: 'Notification', body: event.data.text() };
   }
   
-  // Show the notification
+  // Show the notification with absolute URLs
   event.waitUntil(
     self.registration.showNotification(data.title || 'Task Reminder', {
       body: data.body || '',
-      icon: data.icon || `${baseUrl}/icon-192.png`,
-      badge: data.badge || `${baseUrl}/icon-72.png`,
+      icon: data.icon || ICON_URL,
+      badge: data.badge || BADGE_URL,
       data: data,
       tag: 'task-notification',
       requireInteraction: true,
@@ -36,7 +36,7 @@ self.addEventListener('push', event => {
         {
           action: 'open',
           title: 'Open App',
-          icon: `${baseUrl}/icon-72.png`
+          icon: BADGE_URL
         }
       ]
     }).then(() => {
