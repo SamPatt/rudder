@@ -149,73 +149,12 @@ function AppContent() {
   };
 
   const setupRealtimeSubscriptions = () => {
-    // Subscribe to task changes
-    const tasksSubscription = supabase
-      .channel('tasks_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, async (payload) => {
-        if (payload.eventType === 'INSERT') {
-          // Fetch the task with its goal and template
-          const { data: taskWithGoal } = await supabase
-            .from('tasks')
-            .select('*, goal:goals(*), template:task_templates(*)')
-            .eq('id', payload.new.id)
-            .single();
-          
-          if (taskWithGoal) {
-            setTasks(prev => [taskWithGoal, ...prev]);
-          }
-        } else if (payload.eventType === 'UPDATE') {
-          setTasks(prev => prev.map(task => task.id === payload.new.id ? payload.new as Task : task));
-        } else if (payload.eventType === 'DELETE') {
-          setTasks(prev => prev.filter(task => task.id !== payload.old.id));
-        }
-      })
-      .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') {
-          console.warn('Supabase realtime connection error (tasks) - this is normal and will retry automatically');
-        }
-      });
-
-    // Subscribe to goal changes
-    const goalsSubscription = supabase
-      .channel('goals_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'goals' }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          setGoals(prev => [payload.new as Goal, ...prev]);
-        } else if (payload.eventType === 'UPDATE') {
-          setGoals(prev => prev.map(goal => goal.id === payload.new.id ? payload.new as Goal : goal));
-        } else if (payload.eventType === 'DELETE') {
-          setGoals(prev => prev.filter(goal => goal.id !== payload.old.id));
-        }
-      })
-      .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') {
-          console.warn('Supabase realtime connection error (goals) - this is normal and will retry automatically');
-        }
-      });
-
-    // Subscribe to values changes
-    const valuesSubscription = supabase
-      .channel('values_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'values' }, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          setValues(prev => [payload.new as Value, ...prev]);
-        } else if (payload.eventType === 'UPDATE') {
-          setValues(prev => prev.map(value => value.id === payload.new.id ? payload.new as Value : value));
-        } else if (payload.eventType === 'DELETE') {
-          setValues(prev => prev.filter(value => value.id !== payload.old.id));
-        }
-      })
-      .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') {
-          console.warn('Supabase realtime connection error (values) - this is normal and will retry automatically');
-        }
-      });
-
+    // Temporarily disabled realtime subscriptions to reduce console noise
+    // These can be re-enabled later if needed for real-time updates
+    console.log('Realtime subscriptions disabled for debugging');
+    
     return () => {
-      supabase.removeChannel(tasksSubscription);
-      supabase.removeChannel(goalsSubscription);
-      supabase.removeChannel(valuesSubscription);
+      // No cleanup needed since subscriptions are disabled
     };
   };
 
