@@ -11,4 +11,4 @@
   status = 200 
 
 [functions."send-task-notifications"]
-schedule = "0 * * * *"  # Every hour at the top of the hour 
+schedule = "57,12,27,42 * * * *" 

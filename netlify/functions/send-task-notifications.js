@@ -25,119 +25,67 @@ function localTimeToUTC(date, time) {
 
 exports.handler = async function(event, context) {
   console.log('send-task-notifications function triggered');
-  console.log('Event:', event);
-  console.log('Context:', context);
-  
-  // Handle scheduled function invocation
-  let nextRun = null;
-  if (event.body) {
-    try {
-      const body = JSON.parse(event.body);
-      nextRun = body.next_run;
-      console.log('Next scheduled run:', nextRun);
-    } catch (err) {
-      console.log('Not a scheduled invocation or invalid JSON body');
-    }
-  }
 
-  // 1. Fetch your push subscription(s) from Supabase
+  // 1. Fetch push subscriptions
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 
-  // Get all subscriptions (or filter by user_id if needed)
   const subRes = await fetch(`${supabaseUrl}/rest/v1/push_subscriptions`, {
     headers: {
       apikey: supabaseKey,
       Authorization: `Bearer ${supabaseKey}`,
     }
   });
-  console.log('Subscriptions fetch status:', subRes.status);
   const subscriptions = await subRes.json();
-  console.log('Subscriptions fetch body:', subscriptions);
 
   if (!Array.isArray(subscriptions) || subscriptions.length === 0) {
-    console.log('No subscriptions found');
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ sent: 0, tasks: 0, subscriptions: 0, message: 'No subscriptions found' })
-    };
+    return { statusCode: 200, body: JSON.stringify({ sent: 0, tasks: 0, subscriptions: 0, message: 'No subscriptions found' }) };
   }
 
-  // 2. Query Supabase for all tasks in the next hour (using proper timezone handling)
+  // 2. Query for tasks in the next 16 minutes, starting 1 minute ago
   const now = new Date();
-  const nowUTC = now.toISOString();
-  const localDate = getCurrentLocalDate(); // Get current date in user's timezone
-  
-  // Add a 5-minute buffer to catch tasks that started just before the function triggered
-  const bufferTime = new Date(now.getTime() - 5 * 60 * 1000); // 5 minutes ago
-  const bufferTimeUTC = bufferTime.toISOString();
-  
-  // Calculate 1 hour from now in UTC
-  const futureTime = new Date(now.getTime() + 60 * 60 * 1000);
-  const futureTimeUTC = futureTime.toISOString();
+  const windowStart = new Date(now.getTime() - 1 * 60 * 1000); // now - 1 min
+  const windowEnd = new Date(now.getTime() + 16 * 60 * 1000);  // now + 16 min
 
-  console.log(`Function triggered at UTC time: ${nowUTC}`);
-  console.log(`Current local date: ${localDate}`);
-  console.log(`Looking for tasks between ${bufferTimeUTC} (5min ago) and ${futureTimeUTC} (1hr from now) on ${localDate} (local)`);
+  // Use UTC for querying, but you may want to adjust for your app's timezone logic
+  const windowStartUTC = windowStart.toISOString();
+  const windowEndUTC = windowEnd.toISOString();
+  const localDate = getCurrentLocalDate();
 
-  // Query for all tasks in the next hour (completed_at is null for incomplete tasks)
-  // Use buffer to catch tasks that started just before function triggered
-  // Query by both date (in user's timezone) and start_time range
-  const taskRes = await fetch(`${supabaseUrl}/rest/v1/tasks?date=eq.${localDate}&start_time=gte.${bufferTimeUTC}&start_time=lt.${futureTimeUTC}&completed_at=is.null&order=start_time.asc`, {
+  // Query for all tasks in the window (adjust query as needed for your schema)
+  const taskRes = await fetch(`${supabaseUrl}/rest/v1/tasks?date=eq.${localDate}&start_time=gte.${windowStartUTC}&start_time=lt.${windowEndUTC}&completed_at=is.null&order=start_time.asc`, {
     headers: {
       apikey: supabaseKey,
       Authorization: `Bearer ${supabaseKey}`,
     }
   });
-  console.log('Tasks fetch status:', taskRes.status);
   const tasks = await taskRes.json();
-  console.log('Tasks fetch body:', tasks);
 
-  // Debug: Log each task's start time to verify the window
-  if (Array.isArray(tasks) && tasks.length > 0) {
-    console.log('Task start times in window:');
-    tasks.forEach(task => {
-      const taskStart = new Date(task.start_time);
-      const isInWindow = taskStart >= new Date(bufferTimeUTC) && taskStart < new Date(futureTimeUTC);
-      const hasStarted = taskStart <= new Date(nowUTC);
-      const status = hasStarted ? 'STARTED' : 'UPCOMING';
-      console.log(`  - ${task.title}: ${task.start_time} (${status}, in window: ${isInWindow})`);
-    });
-  }
-
-  // 3. Send a comprehensive notification for all tasks
   let sent = 0;
   if (Array.isArray(tasks) && tasks.length > 0) {
-    // Create a comprehensive message
-    const taskList = tasks.map(task => `• ${task.title} at ${task.start_time}`).join('\n');
-    const taskCount = tasks.length;
-    
-    const payload = JSON.stringify({
-      title: `You have ${taskCount} task${taskCount > 1 ? 's' : ''} in the next hour`,
-      body: taskList,
-      icon: 'https://ruddertasks.netlify.app/icon-192.png',
-      badge: 'https://ruddertasks.netlify.app/icon-72.png',
-      tag: 'task-reminder',
-      requireInteraction: true,
-      silent: false,
-      vibrate: [200, 100, 200]
-    });
-    
-    for (const sub of subscriptions) {
-      try {
-        console.log(`Sending comprehensive notification for ${taskCount} tasks to subscription ${sub.id}`);
-        await webpush.sendNotification(sub.subscription, payload);
-        sent++;
-        console.log(`Successfully sent comprehensive notification for ${taskCount} tasks`);
-      } catch (err) {
-        console.error('Push error:', err);
+    for (const task of tasks) {
+      // Format time for user (local time, e.g. America/Detroit)
+      const localTime = new Date(task.start_time).toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit', timeZone: "America/Detroit" });
+      const payload = JSON.stringify({
+        title: `📝 ${task.title}`,
+        body: `Starts at ${localTime}`,
+        icon: 'https://ruddertasks.netlify.app/icon-192.png',
+        badge: 'https://ruddertasks.netlify.app/icon-72.png',
+        tag: `task-${task.id}`,
+        requireInteraction: true,
+        silent: false,
+        vibrate: [200, 100, 200]
+      });
+
+      for (const sub of subscriptions) {
+        try {
+          await webpush.sendNotification(sub.subscription, payload);
+          sent++;
+        } catch (err) {
+          console.error('Push error:', err);
+        }
       }
     }
-    console.log(`Sent ${sent} comprehensive notifications for ${tasks.length} tasks to ${subscriptions.length} subscriptions`);
-  } else if (Array.isArray(tasks) && tasks.length === 0) {
-    console.log('No tasks found in the next hour');
-  } else {
-    console.error('Tasks is not an array:', tasks);
   }
 
   return {
@@ -146,7 +94,7 @@ exports.handler = async function(event, context) {
       sent, 
       tasks: Array.isArray(tasks) ? tasks.length : 'n/a', 
       subscriptions: Array.isArray(subscriptions) ? subscriptions.length : 'n/a',
-      queryTime: `${bufferTimeUTC}-${futureTimeUTC}`,
+      queryTime: `${windowStartUTC}-${windowEndUTC}`,
       queryDate: localDate
     })
   };
