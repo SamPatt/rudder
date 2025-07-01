@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Goal, Value } from '../types/database';
 import { getValueIcon } from '../lib/valueIcons';
 
@@ -24,7 +24,14 @@ export default function GoalSelector({
   const [searchTerm, setSearchTerm] = useState('');
   const [localSelectedGoals, setLocalSelectedGoals] = useState<string[]>(selectedGoalIds);
 
+  // Update localSelectedGoals when selectedGoalIds prop changes
+  React.useEffect(() => {
+    setLocalSelectedGoals(selectedGoalIds);
+  }, [selectedGoalIds]);
+
   if (!isOpen) return null;
+
+  console.log('GoalSelector render:', { isOpen, selectedGoalIds, localSelectedGoals, multiple });
 
   // Group goals by value
   const goalsByValue = values.map(value => ({
@@ -68,7 +75,7 @@ export default function GoalSelector({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-2 sm:p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10000] p-2 sm:p-4">
       <div className="bg-slate-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] sm:max-h-[80vh] flex flex-col border border-slate-700">
         {/* Header */}
         <div className="p-4 sm:p-6 border-b border-slate-700 flex-shrink-0">

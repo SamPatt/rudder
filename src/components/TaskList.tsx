@@ -9,6 +9,7 @@ import ConfirmationModal from './ConfirmationModal';
 import { getCurrentLocalDate } from '../lib/timezone';
 import PushRegisterButton from './PushRegisterButton';
 import PushDebug from './PushDebug';
+import EditTaskModal from './EditTaskModal';
 
 interface TaskListProps {
   tasks: Task[];
@@ -24,7 +25,7 @@ export default function TaskList({ tasks, goals, values, projects, setTasks, set
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [showGoalSelector, setShowGoalSelector] = useState(false);
   const [showProjectSelector, setShowProjectSelector] = useState(false);
-  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurType, setRecurType] = useState<'daily' | 'weekdays' | 'weekly' | 'custom'>('daily');
   const [customDays, setCustomDays] = useState<number[]>([]);
@@ -38,6 +39,8 @@ export default function TaskList({ tasks, goals, values, projects, setTasks, set
   const [showProjectDeleteConfirm, setShowProjectDeleteConfirm] = useState(false);
   const [projectDeleteTarget, setProjectDeleteTarget] = useState<Project | null>(null);
   const [showDevTools, setShowDevTools] = useState(false);
+  const [editTaskModalOpen, setEditTaskModalOpen] = useState(false);
+  const [isEditingGoal, setIsEditingGoal] = useState(false);
 
   const handleAddTask = () => {
     if (!newTaskTitle.trim()) return;
@@ -98,78 +101,78 @@ export default function TaskList({ tasks, goals, values, projects, setTasks, set
     }
   };
 
-  const handleGoalSelect = async (goalIds: string[]) => {
+  const handleGoalSelectForNewTask = async (goalIds: string[]) => {
     try {
       const taskDate = getTaskDate(isRecurring, recurType, customDays);
-      
-      if (isRecurring) {
-        // Create a task template
-        const templatePayload = {
-          title: newTaskTitle,
-          recur_type: recurType,
-          custom_days: recurType === 'custom' ? customDays : null,
-          goal_id: goalIds.length > 0 ? goalIds[0] : null,
-          project_id: selectedProjectId,
-          user_id: user.id,
-        };
-
-        const { error: templateError } = await supabase
-          .from('task_templates')
-          .insert(templatePayload)
-          .select('*, goal:goals(*)')
-          .single();
-
-        if (templateError) throw templateError;
-
-        // Generate tasks for today and the next few days
-        const { error: generateError } = await supabase.rpc('generate_tasks_for_range', {
-          start_date: taskDate,
-          end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-        });
-
-        if (generateError) throw generateError;
-
-        // Refresh tasks to get the newly generated ones
-        const { data: newTasks, error: tasksError } = await supabase
-          .from('tasks')
-          .select('*, goal:goals(*), template:task_templates(*), project:projects(*)')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
-
-        if (tasksError) throw tasksError;
-        setTasks(newTasks || []);
-      } else {
-        // Create a one-time task
-        const insertPayload = {
-          title: newTaskTitle,
-          is_done: false,
-          recur: 'once',
-          date: taskDate,
-          goal_id: goalIds.length > 0 ? goalIds[0] : null,
-          project_id: selectedProjectId,
-          user_id: user.id,
-        };
         
-        console.log('Inserting task with payload:', insertPayload, 'User:', user);
-        const { data: task, error: taskError } = await supabase
-          .from('tasks')
-          .insert(insertPayload)
-          .select('*, goal:goals(*), project:projects(*)')
-          .single();
+        if (isRecurring) {
+          // Create a task template
+          const templatePayload = {
+            title: newTaskTitle,
+            recur_type: recurType,
+            custom_days: recurType === 'custom' ? customDays : null,
+            goal_id: goalIds.length > 0 ? goalIds[0] : null,
+            project_id: selectedProjectId,
+            user_id: user.id,
+          };
 
-        if (taskError) throw taskError;
+          const { error: templateError } = await supabase
+            .from('task_templates')
+            .insert(templatePayload)
+            .select('*, goal:goals(*)')
+            .single();
 
-        setTasks([task, ...tasks]);
+          if (templateError) throw templateError;
+
+          // Generate tasks for today and the next few days
+          const { error: generateError } = await supabase.rpc('generate_tasks_for_range', {
+            start_date: taskDate,
+            end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+          });
+
+          if (generateError) throw generateError;
+
+          // Refresh tasks to get the newly generated ones
+          const { data: newTasks, error: tasksError } = await supabase
+            .from('tasks')
+            .select('*, goal:goals(*), template:task_templates(*), project:projects(*)')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+
+          if (tasksError) throw tasksError;
+          setTasks(newTasks || []);
+        } else {
+          // Create a one-time task
+          const insertPayload = {
+            title: newTaskTitle,
+            is_done: false,
+            recur: 'once',
+            date: taskDate,
+            goal_id: goalIds.length > 0 ? goalIds[0] : null,
+            project_id: selectedProjectId,
+            user_id: user.id,
+          };
+          
+          console.log('Inserting task with payload:', insertPayload, 'User:', user);
+          const { data: task, error: taskError } = await supabase
+            .from('tasks')
+            .insert(insertPayload)
+            .select('*, goal:goals(*), project:projects(*)')
+            .single();
+
+          if (taskError) throw taskError;
+
+          setTasks([task, ...tasks]);
+        }
+
+        setNewTaskTitle('');
+        setIsRecurring(false);
+        setRecurType('daily');
+        setCustomDays([]);
+        setSelectedProjectId(null);
+      } catch (error) {
+        console.error('Error adding task:', error);
       }
-
-      setNewTaskTitle('');
-      setIsRecurring(false);
-      setRecurType('daily');
-      setCustomDays([]);
-      setSelectedProjectId(null);
-    } catch (error) {
-      console.error('Error adding task:', error);
-    }
   };
 
   const toggleTask = async (taskId: string, currentStatus: boolean) => {
@@ -208,46 +211,9 @@ export default function TaskList({ tasks, goals, values, projects, setTasks, set
     }
   };
 
-  const updateTaskGoals = async (taskId: string, goalIds: string[]) => {
-    try {
-      // Update the task's goal_id
-      const { error: updateError } = await supabase
-        .from('tasks')
-        .update({ goal_id: goalIds.length > 0 ? goalIds[0] : null })
-        .eq('id', taskId)
-        .eq('user_id', user.id);
 
-      if (updateError) throw updateError;
 
-      // Fetch the updated task with its goal
-      const { data: taskWithGoal, error: fetchError } = await supabase
-        .from('tasks')
-        .select('*, goal:goals(*)')
-        .eq('id', taskId)
-        .eq('user_id', user.id)
-        .single();
 
-      if (fetchError) throw fetchError;
-
-      setTasks(tasks.map(task => task.id === taskId ? taskWithGoal : task));
-      setEditingTaskId(null);
-    } catch (error) {
-      console.error('Error updating task goals:', error);
-    }
-  };
-
-  const handleEditGoalSelect = (goalIds: string[]) => {
-    if (editingTaskId) {
-      updateTaskGoals(editingTaskId, goalIds);
-    }
-  };
-
-  const getCurrentTaskGoalIds = () => {
-    if (!editingTaskId) return [];
-    const task = tasks.find(t => t.id === editingTaskId);
-    if (!task || !task.goal_id) return [];
-    return [task.goal_id];
-  };
 
   // Get to-do list (one-time tasks)
   const getTodoTasks = () => {
@@ -490,6 +456,82 @@ export default function TaskList({ tasks, goals, values, projects, setTasks, set
     }
   };
 
+  const handleEditTaskSave = async (updated: { name: string }) => {
+    if (!editingTask) return;
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ title: updated.name })
+        .eq('id', editingTask.id)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, title: updated.name } : t));
+      setEditingTask(null);
+      setEditTaskModalOpen(false);
+    } catch (err) {
+      console.error('Error updating task:', err);
+    }
+  };
+
+  const handleEditTaskDelete = async () => {
+    if (!editingTask) return;
+    if (editingTask.template_id) {
+      // Recurring instance: show confirmation modal
+      setInstanceDeleteTarget({ taskId: editingTask.id, templateId: editingTask.template_id });
+      setShowInstanceDeleteConfirm(true);
+      setEditingTask(null);
+      setEditTaskModalOpen(false);
+      return;
+    }
+    // One-time task: delete immediately
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', editingTask.id)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      setTasks(tasks.filter(t => t.id !== editingTask.id));
+      setEditingTask(null);
+      setEditTaskModalOpen(false);
+    } catch (err) {
+      console.error('Error deleting task:', err);
+    }
+  };
+
+  const handleEditTaskCancel = () => {
+    setEditingTask(null);
+    setEditTaskModalOpen(false);
+  };
+
+  const handleEditTaskGoalSelect = () => {
+    setIsEditingGoal(true);
+    setShowGoalSelector(true);
+  };
+
+  const handleGoalSelect = async (goalIds: string[]) => {
+    if (isEditingGoal && editingTask) {
+      // Handle goal selection for editing
+      try {
+        const { error } = await supabase
+          .from('tasks')
+          .update({ goal_id: goalIds.length > 0 ? goalIds[0] : null })
+          .eq('id', editingTask.id)
+          .eq('user_id', user.id);
+        if (error) throw error;
+        setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, goal_id: goalIds.length > 0 ? goalIds[0] : null } : t));
+        setEditingTask(tasks.find(t => t.id === editingTask.id) ? { ...editingTask, goal_id: goalIds.length > 0 ? goalIds[0] : null } : null);
+      } catch (err) {
+        console.error('Error updating task goal:', err);
+      }
+      setIsEditingGoal(false);
+      setShowGoalSelector(false);
+    } else {
+      // Handle goal selection for new task
+      handleGoalSelectForNewTask(goalIds);
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
@@ -635,7 +677,8 @@ export default function TaskList({ tasks, goals, values, projects, setTasks, set
                           className="ml-2 text-slate-400 hover:text-blue-400 text-lg px-2 py-1 rounded"
                           title="Edit task"
                           onClick={() => {
-                            setEditingTaskId(task.id);
+                            setEditingTask(task);
+                            setEditTaskModalOpen(true);
                           }}
                         >
                           ✎
@@ -659,7 +702,8 @@ export default function TaskList({ tasks, goals, values, projects, setTasks, set
                           className="ml-2 text-slate-400 hover:text-blue-400 text-lg px-2 py-1 rounded"
                           title="Edit task"
                           onClick={() => {
-                            setEditingTaskId(task.id);
+                            setEditingTask(task);
+                            setEditTaskModalOpen(true);
                           }}
                         >
                           ✎
@@ -750,7 +794,8 @@ export default function TaskList({ tasks, goals, values, projects, setTasks, set
                             className="ml-2 text-slate-400 hover:text-blue-400 text-lg px-2 py-1 rounded"
                             title="Edit task"
                             onClick={() => {
-                              setEditingTaskId(task.id);
+                              setEditingTask(task);
+                              setEditTaskModalOpen(true);
                             }}
                           >
                             ✎
@@ -801,7 +846,8 @@ export default function TaskList({ tasks, goals, values, projects, setTasks, set
                       className="ml-2 text-slate-400 hover:text-blue-400 text-lg px-2 py-1 rounded"
                       title="Edit task"
                       onClick={() => {
-                        setEditingTaskId(task.id);
+                        setEditingTask(task);
+                        setEditTaskModalOpen(true);
                       }}
                     >
                       ✎
@@ -848,7 +894,8 @@ export default function TaskList({ tasks, goals, values, projects, setTasks, set
                             className="ml-2 text-slate-400 hover:text-blue-400 text-lg px-2 py-1 rounded"
                             title="Edit task"
                             onClick={() => {
-                              setEditingTaskId(task.id);
+                              setEditingTask(task);
+                              setEditTaskModalOpen(true);
                             }}
                           >
                             ✎
@@ -891,18 +938,29 @@ export default function TaskList({ tasks, goals, values, projects, setTasks, set
           )}
         </div>
 
-        {/* Goal Selector Modal */}
+        {/* Edit Task Modal */}
+        <EditTaskModal
+          isOpen={editTaskModalOpen}
+          task={editingTask}
+          goals={goals}
+          values={values}
+          onSave={handleEditTaskSave}
+          onDelete={handleEditTaskDelete}
+          onCancel={handleEditTaskCancel}
+          onGoalSelect={handleEditTaskGoalSelect}
+        />
+
         <GoalSelector
           goals={goals}
           values={values}
-          onGoalSelect={editingTaskId ? handleEditGoalSelect : handleGoalSelect}
+          onGoalSelect={handleGoalSelect}
           onClose={() => {
             setShowGoalSelector(false);
-            setEditingTaskId(null);
+            setIsEditingGoal(false);
           }}
           isOpen={showGoalSelector}
           multiple={true}
-          selectedGoalIds={editingTaskId ? getCurrentTaskGoalIds() : []}
+          selectedGoalIds={isEditingGoal && editingTask ? (editingTask.goal_id ? [editingTask.goal_id] : []) : []}
         />
 
         {/* Project Selector Modal */}
