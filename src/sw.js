@@ -1,4 +1,5 @@
-import { precacheAndRoute } from 'workbox-precaching';
+// Use CommonJS require instead of ES modules
+const { precacheAndRoute } = require('workbox-precaching');
 precacheAndRoute(self.__WB_MANIFEST__);
 
 self.addEventListener('push', event => {
