@@ -7,6 +7,7 @@ import { User } from '@supabase/supabase-js';
 import ConfirmationModal from './ConfirmationModal';
 import { getCurrentLocalDate } from '../lib/timezone';
 import PushRegisterButton from './PushRegisterButton';
+import PushDebug from './PushDebug';
 
 interface TaskListProps {
   tasks: Task[];
@@ -790,6 +791,15 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
           Enable push notifications to get reminded about your scheduled tasks.
         </p>
         <PushRegisterButton user={user} />
+      </div>
+
+      {/* Push Debug */}
+      <div className="bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 border border-slate-700">
+        <h2 className="text-lg font-semibold text-slate-200 mb-4">Push Debug</h2>
+        <p className="text-sm text-slate-400 mb-4">
+          Debug information for troubleshooting push notifications on Android PWA.
+        </p>
+        <PushDebug />
       </div>
 
       {/* Goal Selector Modal */}
