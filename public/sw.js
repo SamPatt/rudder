@@ -88,6 +88,30 @@ self.addEventListener('notificationclick', event => {
   }
 });
 
+// Add message event listener to respond to messages from main thread
+self.addEventListener('message', event => {
+  console.log('📨 Message received in service worker:', event.data);
+  
+  if (event.data && event.data.type === 'DEBUG') {
+    console.log('🔧 Debug message received:', event.data.message);
+    // Send a response back to the main thread
+    event.ports[0].postMessage({
+      type: 'DEBUG_RESPONSE',
+      message: 'Service worker is working!',
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  if (event.data && event.data.type === 'PING') {
+    console.log('🏓 Ping received, sending pong');
+    // Send a response back to the main thread
+    event.ports[0].postMessage({
+      type: 'PONG',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Service worker lifecycle events (without debug notifications)
 self.addEventListener('install', event => {
   console.log('🔧 Service Worker installing...');
