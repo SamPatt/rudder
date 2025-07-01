@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Task, Goal, Value } from '../types/database';
+import { Task, Goal, Value, Project } from '../types/database';
 import { supabase } from '../lib/supabase';
 import { soundManager } from '../lib/sounds';
 import GoalSelector from './GoalSelector';
+import ProjectSelector from './ProjectSelector';
 import { User } from '@supabase/supabase-js';
 import ConfirmationModal from './ConfirmationModal';
 import { getCurrentLocalDate } from '../lib/timezone';
@@ -13,24 +14,32 @@ interface TaskListProps {
   tasks: Task[];
   goals: Goal[];
   values: Value[];
+  projects: Project[];
   setTasks: (tasks: Task[]) => void;
+  setProjects: (projects: Project[]) => void;
   user: User;
 }
 
-export default function TaskList({ tasks, goals, values, setTasks, user }: TaskListProps) {
+export default function TaskList({ tasks, goals, values, projects, setTasks, setProjects, user }: TaskListProps) {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [filter, setFilter] = useState<'all' | 'incomplete' | 'complete'>('all');
   const [showGoalSelector, setShowGoalSelector] = useState(false);
+  const [showProjectSelector, setShowProjectSelector] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurType, setRecurType] = useState<'daily' | 'weekdays' | 'weekly' | 'custom'>('daily');
   const [customDays, setCustomDays] = useState<number[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [editModalTask, setEditModalTask] = useState<Task | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{templateId: string, taskId: string | null} | null>(null);
   const [showInstanceDeleteConfirm, setShowInstanceDeleteConfirm] = useState(false);
   const [instanceDeleteTarget, setInstanceDeleteTarget] = useState<{taskId: string, templateId: string} | null>(null);
+  const [editProjectModal, setEditProjectModal] = useState<Project | null>(null);
+  const [editProjectName, setEditProjectName] = useState('');
+  const [showProjectDeleteConfirm, setShowProjectDeleteConfirm] = useState(false);
+  const [projectDeleteTarget, setProjectDeleteTarget] = useState<Project | null>(null);
 
   const handleAddTask = () => {
     if (!newTaskTitle.trim()) return;
@@ -102,6 +111,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
           recur_type: recurType,
           custom_days: recurType === 'custom' ? customDays : null,
           goal_id: goalIds.length > 0 ? goalIds[0] : null,
+          project_id: selectedProjectId,
           user_id: user.id,
         };
 
@@ -124,7 +134,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
         // Refresh tasks to get the newly generated ones
         const { data: newTasks, error: tasksError } = await supabase
           .from('tasks')
-          .select('*, goal:goals(*), template:task_templates(*)')
+          .select('*, goal:goals(*), template:task_templates(*), project:projects(*)')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
@@ -138,6 +148,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
           recur: 'once',
           date: taskDate,
           goal_id: goalIds.length > 0 ? goalIds[0] : null,
+          project_id: selectedProjectId,
           user_id: user.id,
         };
         
@@ -145,7 +156,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
         const { data: task, error: taskError } = await supabase
           .from('tasks')
           .insert(insertPayload)
-          .select('*, goal:goals(*)')
+          .select('*, goal:goals(*), project:projects(*)')
           .single();
 
         if (taskError) throw taskError;
@@ -157,6 +168,7 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
       setIsRecurring(false);
       setRecurType('daily');
       setCustomDays([]);
+      setSelectedProjectId(null);
     } catch (error) {
       console.error('Error adding task:', error);
     }
@@ -250,15 +262,47 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
     }
   });
 
-  // One-time tasks (non-recurring)
+  // Get to-do list (one-time tasks)
   const getTodoTasks = () => {
     return tasks.filter(task => {
       // Must be a one-time task (no template_id)
       if (task.template_id) {
         return false;
       }
+      // Must not have a project_id, or if it does, the project must not exist
+      if (task.project_id) {
+        const projectExists = projects.some(p => p.id === task.project_id);
+        if (projectExists) {
+          return false; // Don't show in to-do if project exists
+        }
+      }
       return true;
     });
+  };
+
+  // Get tasks grouped by project
+  const getTasksByProject = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const projectTasks = tasks.filter(task => 
+      task.project_id && 
+      !task.is_done && 
+      task.completion_status !== 'failed' &&
+      task.date === today
+    );
+
+    const grouped: { [projectId: string]: { project: Project; tasks: Task[] } } = {};
+    
+    projectTasks.forEach(task => {
+      const project = projects.find(p => p.id === task.project_id);
+      if (project) {
+        if (!grouped[project.id]) {
+          grouped[project.id] = { project, tasks: [] };
+        }
+        grouped[project.id].tasks.push(task);
+      }
+    });
+
+    return Object.values(grouped);
   };
 
   // Helper function to get the actual completion date for a task
@@ -328,7 +372,17 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
         return false;
       }
       // Check if it's scheduled for today
-      return task.date === today;
+      if (task.date !== today) {
+        return false;
+      }
+      // Must not have a project_id, or if it does, the project must not exist
+      if (task.project_id) {
+        const projectExists = projects.some(p => p.id === task.project_id);
+        if (projectExists) {
+          return false; // Don't show in recurring if project exists
+        }
+      }
+      return true;
     });
   };
 
@@ -345,7 +399,17 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
       }
       if (task.is_done) return false;
       // Must be in the future
-      return task.date > today;
+      if (task.date <= today) {
+        return false;
+      }
+      // Must not have a project_id, or if it does, the project must not exist
+      if (task.project_id) {
+        const projectExists = projects.some(p => p.id === task.project_id);
+        if (projectExists) {
+          return false; // Don't show in recurring if project exists
+        }
+      }
+      return true;
     });
 
     // Group by template_id and only keep the first (earliest) instance of each template
@@ -403,6 +467,81 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
     }
   };
 
+  // Create a new project
+  const handleCreateProject = async (projectName: string): Promise<string | null> => {
+    try {
+      const { data: project, error } = await supabase
+        .from('projects')
+        .insert({
+          name: projectName,
+          user_id: user.id,
+          color: `#${Math.floor(Math.random()*16777215).toString(16)}` // Random color
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setProjects([...projects, project]);
+      return project.id;
+    } catch (error) {
+      console.error('Error creating project:', error);
+      return null;
+    }
+  };
+
+  const handleEditProject = async (projectId: string, newName: string) => {
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ name: newName })
+        .eq('id', projectId)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      setProjects(projects.map(p => 
+        p.id === projectId ? { ...p, name: newName } : p
+      ));
+      setEditProjectModal(null);
+      setEditProjectName('');
+    } catch (error) {
+      console.error('Error updating project:', error);
+    }
+  };
+
+  const handleDeleteProject = async (projectId: string) => {
+    try {
+      // First, remove project_id from all tasks that belong to this project
+      const { error: updateError } = await supabase
+        .from('tasks')
+        .update({ project_id: null })
+        .eq('project_id', projectId)
+        .eq('user_id', user.id);
+
+      if (updateError) throw updateError;
+
+      // Then delete the project
+      const { error: deleteError } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId)
+        .eq('user_id', user.id);
+
+      if (deleteError) throw deleteError;
+
+      // Update local state
+      setProjects(projects.filter(p => p.id !== projectId));
+      setTasks(tasks.map(task => 
+        task.project_id === projectId ? { ...task, project_id: null } : task
+      ));
+      setEditProjectModal(null);
+      setEditProjectName('');
+    } catch (error) {
+      console.error('Error deleting project:', error);
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Add New Task */}
@@ -428,16 +567,40 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
           </div>
           
           {/* Recurring Task Options */}
-          <div className="flex items-center space-x-4">
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={isRecurring}
-                onChange={(e) => setIsRecurring(e.target.checked)}
-                className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600"
-              />
-              <span className="text-slate-300 text-sm">Make frequent</span>
-            </label>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={isRecurring}
+                  onChange={(e) => setIsRecurring(e.target.checked)}
+                  className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600"
+                />
+                <span className="text-slate-300 text-sm">Make frequent</span>
+              </label>
+            </div>
+            
+            <button
+              onClick={() => setShowProjectSelector(true)}
+              className="flex items-center gap-2 px-3 py-1 text-sm border border-slate-600 rounded-md hover:border-slate-500 transition-colors"
+            >
+              {selectedProjectId ? (
+                <>
+                  <div 
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: projects.find(p => p.id === selectedProjectId)?.color || '#6B7280' }}
+                  ></div>
+                  <span className="text-slate-300">
+                    {projects.find(p => p.id === selectedProjectId)?.name}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <div className="w-3 h-3 rounded-full bg-gray-500"></div>
+                  <span className="text-slate-400">No Project</span>
+                </>
+              )}
+            </button>
           </div>
           
           {isRecurring && (
@@ -605,6 +768,99 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Projects Section */}
+            {getTasksByProject().length > 0 && (
+              <div className="mb-8">
+                <h3 className="text-lg font-semibold text-blue-300 mb-2 flex items-center">
+                  <span className="mr-2">📁</span>
+                  Projects
+                </h3>
+                <div className="space-y-4">
+                  {getTasksByProject().map(({ project, tasks: projectTasks }) => (
+                    <div key={project.id} className="border border-slate-600 rounded-lg bg-slate-700 overflow-hidden">
+                      <div className="bg-slate-800 px-3 py-2 border-b border-slate-600">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <div 
+                              className="w-3 h-3 rounded-full mr-2"
+                              style={{ backgroundColor: project.color }}
+                            ></div>
+                            <h4 className="text-sm font-medium text-slate-300">
+                              {project.name}
+                            </h4>
+                            <span className="ml-2 text-xs text-slate-400">
+                              ({projectTasks.length} task{projectTasks.length !== 1 ? 's' : ''})
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              className="text-slate-400 hover:text-blue-400 text-sm px-2 py-1 rounded"
+                              title="Edit project"
+                              onClick={() => {
+                                setEditProjectModal(project);
+                                setEditProjectName(project.name);
+                              }}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              className="text-slate-400 hover:text-red-400 text-sm px-2 py-1 rounded"
+                              title="Delete project"
+                              onClick={() => {
+                                setProjectDeleteTarget(project);
+                                setShowProjectDeleteConfirm(true);
+                              }}
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="p-3 space-y-2">
+                        {projectTasks.map(task => (
+                          <div key={task.id} className={`p-3 border rounded-lg transition-colors flex flex-col ${
+                            task.is_done 
+                              ? 'border-green-600 bg-green-900/20' 
+                              : 'border-slate-600 bg-slate-800'
+                          }`}>
+                            <div className="flex items-center gap-3 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={task.is_done}
+                                onChange={() => toggleTask(task.id, task.is_done)}
+                                className={`h-4 w-4 focus:ring-forest-500 border-slate-500 rounded flex-shrink-0 ${
+                                  task.is_done 
+                                    ? 'text-green-600 bg-green-600' 
+                                    : 'text-forest-600 bg-slate-600'
+                                }`}
+                              />
+                              <span className={`flex-1 min-w-0 break-words ${
+                                task.is_done 
+                                  ? 'line-through text-slate-400' 
+                                  : 'text-slate-200'
+                              }`}>
+                                {task.title}
+                              </span>
+                              <button
+                                className="ml-2 text-slate-400 hover:text-blue-400 text-lg px-2 py-1 rounded"
+                                title="Edit task"
+                                onClick={() => {
+                                  setEditModalTask(task);
+                                  setEditTitle(task.title);
+                                }}
+                              >
+                                ✎
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -816,6 +1072,16 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
         selectedGoalIds={editingTaskId ? getCurrentTaskGoalIds() : []}
       />
 
+      {/* Project Selector Modal */}
+      <ProjectSelector
+        projects={projects}
+        isOpen={showProjectSelector}
+        onClose={() => setShowProjectSelector(false)}
+        onProjectSelect={(projectId) => setSelectedProjectId(projectId)}
+        onCreateProject={handleCreateProject}
+        selectedProjectId={selectedProjectId}
+      />
+
       <ConfirmationModal
         isOpen={showInstanceDeleteConfirm}
         onClose={() => setShowInstanceDeleteConfirm(false)}
@@ -873,6 +1139,63 @@ export default function TaskList({ tasks, goals, values, setTasks, user }: TaskL
         cancelText="Cancel"
         confirmButtonVariant="danger"
       />
+
+      <ConfirmationModal
+        isOpen={showProjectDeleteConfirm}
+        onClose={() => {
+          setShowProjectDeleteConfirm(false);
+          setProjectDeleteTarget(null);
+        }}
+        onConfirm={async () => {
+          if (projectDeleteTarget) {
+            await handleDeleteProject(projectDeleteTarget.id);
+            setShowProjectDeleteConfirm(false);
+            setProjectDeleteTarget(null);
+          }
+        }}
+        title="Delete Project"
+        message={`Are you sure you want to delete the project "${projectDeleteTarget?.name}"? This will remove the project from all associated tasks.`}
+        confirmText="Delete Project"
+        cancelText="Cancel"
+        confirmButtonVariant="danger"
+      />
+
+      {/* Edit Project Modal */}
+      {editProjectModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-slate-800 p-6 rounded-lg shadow-lg w-full max-w-md mx-2">
+            <h3 className="text-lg font-semibold text-slate-200 mb-4">Edit Project</h3>
+            <input
+              type="text"
+              value={editProjectName}
+              onChange={e => setEditProjectName(e.target.value)}
+              className="w-full px-3 py-2 mb-4 border border-slate-600 rounded-md bg-slate-700 text-slate-200 focus:outline-none focus:ring-2 focus:ring-forest-500"
+              placeholder="Project name"
+            />
+            <div className="flex gap-3 justify-end">
+              <button
+                className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded"
+                onClick={() => {
+                  setEditProjectModal(null);
+                  setEditProjectName('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
+                onClick={() => {
+                  if (editProjectModal && editProjectName.trim()) {
+                    handleEditProject(editProjectModal.id, editProjectName.trim());
+                  }
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

@@ -15,6 +15,16 @@ export interface Goal {
   value?: Value;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  description?: string | null;
+  color: string;
+  created_at: string;
+  updated_at: string;
+  user_id: string;
+}
+
 export interface TaskTemplate {
   id: string;
   title: string;
@@ -60,6 +70,7 @@ export interface Task {
   
   // Relationships
   goal_id?: string | null;
+  project_id?: string | null;
   
   // Metadata
   date: string;
@@ -70,6 +81,7 @@ export interface Task {
   // Relationships (for queries)
   goal?: Goal;
   template?: TaskTemplate;
+  project?: Project;
 }
 
 export type Json =

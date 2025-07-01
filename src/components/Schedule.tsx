@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
-import { Task, Goal, Value } from '../types/database';
+import { Task, Goal, Value, Project } from '../types/database';
 import { User } from '@supabase/supabase-js';
 import GoalSelector from './GoalSelector';
 import TimeDropdown from './TimeDropdown';
@@ -12,6 +12,7 @@ interface ScheduleProps {
   tasks: Task[];
   goals: Goal[];
   values: Value[];
+  projects: Project[];
   setTasks: (tasks: Task[]) => void;
   user: User;
 }

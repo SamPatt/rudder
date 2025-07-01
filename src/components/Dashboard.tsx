@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Task, Goal, Value } from '../types/database';
+import { Task, Goal, Value, Project } from '../types/database';
 import { supabase } from '../lib/supabase';
 import { soundManager } from '../lib/sounds';
 import GoalSelector from './GoalSelector';
+import ProjectSelector from './ProjectSelector';
 import { User } from '@supabase/supabase-js';
 import { getCurrentLocalDate, utcToLocalTime12Hour } from '../lib/timezone';
 
@@ -10,17 +11,21 @@ interface DashboardProps {
   tasks: Task[];
   goals: Goal[];
   values: Value[];
+  projects: Project[];
   setTasks: (tasks: Task[]) => void;
+  setProjects: (projects: Project[]) => void;
   user: User;
 }
 
-export default function Dashboard({ tasks, goals, values, setTasks, user }: DashboardProps) {
+export default function Dashboard({ tasks, goals, values, projects, setTasks, setProjects, user }: DashboardProps) {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [showGoalSelector, setShowGoalSelector] = useState(false);
+  const [showProjectSelector, setShowProjectSelector] = useState(false);
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurType, setRecurType] = useState<'daily' | 'weekdays' | 'custom'>('daily');
   const [customDays, setCustomDays] = useState<number[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const taskTitleInputRef = useRef<HTMLInputElement>(null);
 
   // Get tasks for the event cards (past due, current, upcoming)
@@ -185,7 +190,7 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
         // Refresh tasks to get the newly generated ones
         const { data: newTasks, error: tasksError } = await supabase
           .from('tasks')
-          .select('*, goal:goals(*), template:task_templates(*)')
+          .select('*, goal:goals(*), template:task_templates(*), project:projects(*)')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
@@ -199,13 +204,14 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
           recur: 'once',
           date: taskDate,
           goal_id: goalIds.length > 0 ? goalIds[0] : null,
+          project_id: selectedProjectId,
           user_id: user.id,
         };
 
         const { error: insertError } = await supabase
           .from('tasks')
           .insert(insertPayload)
-          .select('*, goal:goals(*)')
+          .select('*, goal:goals(*), project:projects(*)')
           .single();
 
         if (insertError) throw insertError;
@@ -213,7 +219,7 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
         // Refresh tasks
         const { data: newTasks, error: tasksError } = await supabase
           .from('tasks')
-          .select('*, goal:goals(*), template:task_templates(*)')
+          .select('*, goal:goals(*), template:task_templates(*), project:projects(*)')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
@@ -226,6 +232,7 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
       setIsRecurring(false);
       setRecurType('daily');
       setCustomDays([]);
+      setSelectedProjectId(null);
       setShowQuickAdd(false);
       setShowGoalSelector(false);
     } catch (error) {
@@ -247,7 +254,9 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
       if (error) throw error;
 
       // Play success sound
-      soundManager.playSuccessSound();
+      if (!currentStatus) {
+        soundManager.playSuccessSound();
+      }
 
       // Update local state
       setTasks(tasks.map(task => 
@@ -279,7 +288,9 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
       if (error) throw error;
 
       // Play success sound
-      soundManager.playSuccessSound();
+      if (status === 'completed') {
+        soundManager.playSuccessSound();
+      }
 
       // Update local state
       setTasks(tasks.map(task => 
@@ -322,7 +333,9 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
     const frequentTasks = tasks.filter(task => 
       templateIds.has(task.template_id) && 
       !task.is_done && 
-      task.completion_status !== 'failed'
+      task.completion_status !== 'failed' &&
+      // Must not have a project_id, or if it does, the project must not exist
+      (!task.project_id || !projects.some(p => p.id === task.project_id))
     );
     
     // Group by template and get the most recent instance of each
@@ -341,9 +354,37 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
     // Get unscheduled tasks (no start_time) that are not done
     return tasks.filter(task => 
       !task.start_time && 
+      !task.template_id && // Must not be a recurring task
       !task.is_done && 
-      task.completion_status !== 'failed'
+      task.completion_status !== 'failed' &&
+      // Must not have a project_id, or if it does, the project must not exist
+      (!task.project_id || !projects.some(p => p.id === task.project_id))
     ).slice(0, 10);
+  };
+
+  // Get tasks grouped by project
+  const getTasksByProject = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const projectTasks = tasks.filter(task => 
+      task.project_id && 
+      !task.is_done && 
+      task.completion_status !== 'failed' &&
+      task.date === today
+    );
+
+    const grouped: { [projectId: string]: { project: Project; tasks: Task[] } } = {};
+    
+    projectTasks.forEach(task => {
+      const project = projects.find(p => p.id === task.project_id);
+      if (project) {
+        if (!grouped[project.id]) {
+          grouped[project.id] = { project, tasks: [] };
+        }
+        grouped[project.id].tasks.push(task);
+      }
+    });
+
+    return Object.values(grouped);
   };
 
   // Focus the input when expanding
@@ -368,6 +409,33 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
     if (task.completion_status === 'failed') return 'Failed';
     if (task.completion_status === 'skipped') return 'Skipped';
     return '';
+  };
+
+  // Create a new project
+  const handleCreateProject = async (projectName: string): Promise<string | null> => {
+    try {
+      const { data: project, error } = await supabase
+        .from('projects')
+        .insert([{
+          name: projectName,
+          color: '#3B82F6', // Default blue color
+          user_id: user.id
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating project:', error);
+        return null;
+      }
+
+      // Add the new project to the projects list
+      setProjects([project, ...projects]);
+      return project.id;
+    } catch (error) {
+      console.error('Error creating project:', error);
+      return null;
+    }
   };
 
   return (
@@ -509,18 +577,44 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
                   Add Task
                 </button>
               </div>
-              {/* Recurring Task Options */}
-              <div className="flex items-center space-x-4">
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={isRecurring}
-                    onChange={(e) => setIsRecurring(e.target.checked)}
-                    className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600"
-                  />
-                  <span className="text-slate-300 text-sm">Make frequent</span>
-                </label>
+              
+              {/* Project Selection */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={isRecurring}
+                      onChange={(e) => setIsRecurring(e.target.checked)}
+                      className="h-4 w-4 text-forest-600 focus:ring-forest-500 border-slate-500 rounded bg-slate-600"
+                    />
+                    <span className="text-slate-300 text-sm">Make frequent</span>
+                  </label>
+                </div>
+                
+                <button
+                  onClick={() => setShowProjectSelector(true)}
+                  className="flex items-center gap-2 px-3 py-1 text-sm border border-slate-600 rounded-md hover:border-slate-500 transition-colors"
+                >
+                  {selectedProjectId ? (
+                    <>
+                      <div 
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: projects.find(p => p.id === selectedProjectId)?.color || '#6B7280' }}
+                      ></div>
+                      <span className="text-slate-300">
+                        {projects.find(p => p.id === selectedProjectId)?.name}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-3 h-3 rounded-full bg-gray-500"></div>
+                      <span className="text-slate-400">No Project</span>
+                    </>
+                  )}
+                </button>
               </div>
+              
               {isRecurring && (
                 <div className="space-y-3 p-3 bg-slate-700 rounded-md">
                   <div>
@@ -609,6 +703,65 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
           </div>
         )}
         
+        {/* Projects Section */}
+        {getTasksByProject().length > 0 && (
+          <div className="mb-6">
+            <h3 className="text-md font-medium text-blue-300 mb-3 flex items-center">
+              <span className="mr-2">📁</span>
+              Projects
+            </h3>
+            <div className="space-y-4">
+              {getTasksByProject().map(({ project, tasks: projectTasks }) => (
+                <div key={project.id} className="border border-slate-600 rounded-lg bg-slate-700 overflow-hidden">
+                  <div className="bg-slate-800 px-3 py-2 border-b border-slate-600">
+                    <div className="flex items-center">
+                      <div 
+                        className="w-3 h-3 rounded-full mr-2"
+                        style={{ backgroundColor: project.color }}
+                      ></div>
+                      <h4 className="text-sm font-medium text-slate-300">
+                        {project.name}
+                      </h4>
+                      <span className="ml-2 text-xs text-slate-400">
+                        ({projectTasks.length} task{projectTasks.length !== 1 ? 's' : ''})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-3 space-y-2">
+                    {projectTasks.map(task => (
+                      <div key={task.id} className={`p-3 border rounded-lg transition-colors flex flex-col ${
+                        task.is_done 
+                          ? 'border-green-600 bg-green-900/20' 
+                          : 'border-slate-600 bg-slate-800'
+                      }`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={task.is_done}
+                            onChange={() => toggleTask(task.id, task.is_done)}
+                            className={`h-4 w-4 focus:ring-forest-500 border-slate-500 rounded flex-shrink-0 ${
+                              task.is_done 
+                                ? 'text-green-600 bg-green-600' 
+                                : 'text-forest-600 bg-slate-600'
+                            }`}
+                          />
+                          <span className={`flex-1 min-w-0 break-words ${
+                            task.is_done 
+                              ? 'line-through text-slate-400' 
+                              : 'text-slate-200'
+                          }`}>
+                            {task.title}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
         {/* To-do list Section */}
         {getTodoListTasks().length > 0 && (
           <div className="mb-6">
@@ -667,6 +820,16 @@ export default function Dashboard({ tasks, goals, values, setTasks, user }: Dash
         onClose={() => setShowGoalSelector(false)}
         onGoalSelect={handleGoalSelect}
         selectedGoalIds={[]}
+      />
+
+      {/* Project Selector Modal */}
+      <ProjectSelector
+        projects={projects}
+        isOpen={showProjectSelector}
+        onClose={() => setShowProjectSelector(false)}
+        onProjectSelect={(projectId) => setSelectedProjectId(projectId)}
+        onCreateProject={handleCreateProject}
+        selectedProjectId={selectedProjectId}
       />
     </div>
   );

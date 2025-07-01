@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
-import { Task, Goal, Value } from './types/database';
+import { Task, Goal, Value, Project } from './types/database';
 import { User } from '@supabase/supabase-js';
 import Dashboard from './components/Dashboard';
 import TaskList from './components/TaskList';
@@ -16,6 +16,7 @@ function AppContent() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [values, setValues] = useState<Value[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -127,20 +128,23 @@ function AppContent() {
 
   const fetchInitialData = async () => {
     try {
-      const [tasksResult, goalsResult, valuesResult] = await Promise.all([
-        supabase.from('tasks').select('*, goal:goals(*), template:task_templates(*)').order('created_at', { ascending: false }),
+      const [tasksResult, goalsResult, valuesResult, projectsResult] = await Promise.all([
+        supabase.from('tasks').select('*, goal:goals(*), template:task_templates(*), project:projects(*)').order('created_at', { ascending: false }),
         supabase.from('goals').select('*, value:values(*)').order('created_at', { ascending: false }),
-        supabase.from('values').select('*').order('created_at', { ascending: false })
+        supabase.from('values').select('*').order('created_at', { ascending: false }),
+        supabase.from('projects').select('*').order('created_at', { ascending: false })
       ]);
 
       if (tasksResult.data) setTasks(tasksResult.data);
       if (goalsResult.data) setGoals(goalsResult.data);
       if (valuesResult.data) setValues(valuesResult.data);
+      if (projectsResult.data) setProjects(projectsResult.data);
       
       // Log any errors
       if (tasksResult.error) console.error('Error fetching tasks:', tasksResult.error);
       if (goalsResult.error) console.error('Error fetching goals:', goalsResult.error);
       if (valuesResult.error) console.error('Error fetching values:', valuesResult.error);
+      if (projectsResult.error) console.error('Error fetching projects:', projectsResult.error);
     } catch (error) {
       console.error('Error fetching initial data:', error);
     } finally {
@@ -195,11 +199,11 @@ function AppContent() {
           <Routes>
             <Route path="/" element={
               <div>
-                <Dashboard tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />
+                <Dashboard tasks={tasks} goals={goals} values={values} projects={projects} setTasks={setTasks} setProjects={setProjects} user={user} />
               </div>
             } />
-            <Route path="/schedule" element={<Schedule tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />} />
-            <Route path="/tasks" element={<TaskList tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />} />
+            <Route path="/schedule" element={<Schedule tasks={tasks} goals={goals} values={values} projects={projects} setTasks={setTasks} user={user} />} />
+            <Route path="/tasks" element={<TaskList tasks={tasks} goals={goals} values={values} projects={projects} setTasks={setTasks} setProjects={setProjects} user={user} />} />
             <Route path="/goals" element={<GoalManager goals={goals} values={values} setGoals={setGoals} setValues={setValues} user={user} />} />
           </Routes>
         </div>
@@ -213,11 +217,11 @@ function AppContent() {
           <Routes>
             <Route path="/" element={
               <div>
-                <Dashboard tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />
+                <Dashboard tasks={tasks} goals={goals} values={values} projects={projects} setTasks={setTasks} setProjects={setProjects} user={user} />
               </div>
             } />
-            <Route path="/schedule" element={<Schedule tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />} />
-            <Route path="/tasks" element={<TaskList tasks={tasks} goals={goals} values={values} setTasks={setTasks} user={user} />} />
+            <Route path="/schedule" element={<Schedule tasks={tasks} goals={goals} values={values} projects={projects} setTasks={setTasks} user={user} />} />
+            <Route path="/tasks" element={<TaskList tasks={tasks} goals={goals} values={values} projects={projects} setTasks={setTasks} setProjects={setProjects} user={user} />} />
             <Route path="/goals" element={<GoalManager goals={goals} values={values} setGoals={setGoals} setValues={setValues} user={user} />} />
           </Routes>
         </main>
