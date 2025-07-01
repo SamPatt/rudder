@@ -3,6 +3,17 @@ import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
 
+// Suppress WebSocket connection errors that clutter the console
+const originalError = console.error;
+console.error = (...args) => {
+  const message = args[0];
+  if (typeof message === 'string' && message.includes('WebSocket connection') && message.includes('failed')) {
+    // Suppress WebSocket connection errors - they're normal and will retry automatically
+    return;
+  }
+  originalError.apply(console, args);
+};
+
 // Register service worker for PWA
 if ('serviceWorker' in navigator) {
   // Check if we're on HTTPS (required for service workers and push notifications)

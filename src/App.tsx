@@ -170,7 +170,11 @@ function AppContent() {
           setTasks(prev => prev.filter(task => task.id !== payload.old.id));
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('Supabase realtime connection error (tasks) - this is normal and will retry automatically');
+        }
+      });
 
     // Subscribe to goal changes
     const goalsSubscription = supabase
@@ -184,7 +188,11 @@ function AppContent() {
           setGoals(prev => prev.filter(goal => goal.id !== payload.old.id));
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('Supabase realtime connection error (goals) - this is normal and will retry automatically');
+        }
+      });
 
     // Subscribe to values changes
     const valuesSubscription = supabase
@@ -198,7 +206,11 @@ function AppContent() {
           setValues(prev => prev.filter(value => value.id !== payload.old.id));
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('Supabase realtime connection error (values) - this is normal and will retry automatically');
+        }
+      });
 
     return () => {
       supabase.removeChannel(tasksSubscription);
