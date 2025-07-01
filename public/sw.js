@@ -1,16 +1,19 @@
 self.addEventListener('push', event => {
-  console.log('Push event received:', event);
-  console.log('Push event data:', event.data ? event.data.text() : 'No data');
+  console.log('🔔 Push event received:', event);
+  console.log('📦 Push event data:', event.data ? event.data.text() : 'No data');
+  console.log('📍 Service worker origin:', self.location.origin);
+  console.log('🆔 Service worker scope:', self.registration.scope);
   
   // Get the correct base URL for icons
   const baseUrl = self.location.origin || 'https://ruddertasks.netlify.app';
+  console.log('🏠 Base URL for icons:', baseUrl);
   
   let data = {};
   try {
     data = event.data.json();
-    console.log('Parsed push data:', data);
+    console.log('✅ Parsed push data:', data);
   } catch (e) {
-    console.error('Error parsing push data:', e);
+    console.error('❌ Error parsing push data:', e);
     data = { title: 'Notification', body: event.data.text() };
   }
   
@@ -33,27 +36,33 @@ self.addEventListener('push', event => {
         }
       ]
     }).then(() => {
-      console.log('Task notification shown successfully');
+      console.log('✅ Task notification shown successfully');
     }).catch(error => {
-      console.error('Error showing task notification:', error);
+      console.error('❌ Error showing task notification:', error);
+      console.error('Error details:', error.message, error.stack);
     })
   );
 });
 
 self.addEventListener('notificationclick', event => {
-  console.log('Notification clicked:', event);
+  console.log('👆 Notification clicked:', event);
+  console.log('🎯 Action:', event.action);
   event.notification.close();
   
   // Handle action clicks
   if (event.action === 'open') {
     event.waitUntil(
       clients.matchAll({ type: 'window' }).then(clientList => {
+        console.log('🔍 Found clients:', clientList.length);
         for (const client of clientList) {
+          console.log('📍 Client URL:', client.url);
           if (client.url === '/' && 'focus' in client) {
+            console.log('🎯 Focusing existing client');
             return client.focus();
           }
         }
         if (clients.openWindow) {
+          console.log('🆕 Opening new window');
           return clients.openWindow('/');
         }
       })
@@ -62,12 +71,16 @@ self.addEventListener('notificationclick', event => {
     // Default behavior for notification body click
     event.waitUntil(
       clients.matchAll({ type: 'window' }).then(clientList => {
+        console.log('🔍 Found clients:', clientList.length);
         for (const client of clientList) {
+          console.log('📍 Client URL:', client.url);
           if (client.url === '/' && 'focus' in client) {
+            console.log('🎯 Focusing existing client');
             return client.focus();
           }
         }
         if (clients.openWindow) {
+          console.log('🆕 Opening new window');
           return clients.openWindow('/');
         }
       })
@@ -77,13 +90,23 @@ self.addEventListener('notificationclick', event => {
 
 // Service worker lifecycle events (without debug notifications)
 self.addEventListener('install', event => {
-  console.log('Service Worker installing...');
+  console.log('🔧 Service Worker installing...');
   // Skip waiting to activate immediately
   event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', event => {
-  console.log('Service Worker activating...');
+  console.log('🚀 Service Worker activating...');
   // Claim all clients immediately
   event.waitUntil(self.clients.claim());
+});
+
+// Add error handling for unhandled promise rejections
+self.addEventListener('unhandledrejection', event => {
+  console.error('❌ Unhandled promise rejection in service worker:', event.reason);
+});
+
+// Add error handling for errors
+self.addEventListener('error', event => {
+  console.error('❌ Error in service worker:', event.error);
 }); 
