@@ -1,6 +1,6 @@
-// Use CommonJS require instead of ES modules
-const { precacheAndRoute } = require('workbox-precaching');
-precacheAndRoute(self.__WB_MANIFEST__);
+// Simple service worker without external dependencies
+// Workbox precache will be injected by the build process
+self.__WB_MANIFEST;
 
 self.addEventListener('push', event => {
   console.log('🔔 Push event received:', event);
