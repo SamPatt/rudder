@@ -7,12 +7,10 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
-      injectManifest: {
-        swSrc: 'public/sw.js',
-        swDest: 'sw.js'
-      },
-      includeAssets: ['icon-192.png', 'icon-512.png'],
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
+      injectRegister: null,
       manifest: {
         name: 'Rudder - Goal & Task Scheduler',
         short_name: 'Rudder',
@@ -99,7 +97,11 @@ export default defineConfig({
             ]
           }
         ]
-      }
+      },
+      injectManifest: {
+        globDirectory: 'dist',
+        globPatterns: ['**/*.{js,css,html,png,svg}'],
+      },
     })
   ],
   server: {

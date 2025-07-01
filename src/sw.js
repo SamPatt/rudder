@@ -1,3 +1,6 @@
+import { precacheAndRoute } from 'workbox-precaching';
+precacheAndRoute(self.__WB_MANIFEST__);
+
 self.addEventListener('push', event => {
   console.log('🔔 Push event received:', event);
   console.log('📦 Push event data:', event.data ? event.data.text() : 'No data');
